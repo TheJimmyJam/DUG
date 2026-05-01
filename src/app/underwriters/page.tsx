@@ -74,24 +74,24 @@ export default async function UnderwritersPage({
           </div>
         )}
 
-        <div className="mt-8 grid gap-3 md:grid-cols-2">
+        <div className="mt-8 grid gap-3 md:grid-cols-2 md:grid-rows-[masonry]" style={{ alignItems: "stretch" }}>
           {(profiles ?? []).map((p) => {
-            const tags = (p.profile_specialties ?? [])
-              .map((s) => s.specialty_slug)
-              .slice(0, 5);
+            const allTags = (p.profile_specialties ?? []).map((s) => s.specialty_slug);
+            const visibleTags = allTags.slice(0, 2);
+            const overflow = allTags.length - visibleTags.length;
             return (
               <Link
                 key={p.id}
                 href={`/u/${p.handle}`}
-                className="block group"
+                className="block group h-full"
               >
-                <Card className="transition-shadow group-hover:shadow-md">
-                  <CardContent className="pt-5 pb-5">
-                    <div className="flex items-start gap-4">
+                <Card className="transition-shadow group-hover:shadow-md h-full">
+                  <CardContent className="pt-5 pb-5 h-full">
+                    <div className="flex items-start gap-4 h-full">
                       <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[var(--color-primary)] text-lg font-bold text-[var(--color-primary-fg)]">
                         {p.display_name.charAt(0).toUpperCase()}
                       </div>
-                      <div className="min-w-0 flex-1">
+                      <div className="min-w-0 flex-1 flex flex-col">
                         <div className="flex flex-wrap items-center gap-2">
                           <h3 className="font-semibold leading-tight group-hover:text-[var(--color-primary)]">
                             {p.display_name}
@@ -114,22 +114,31 @@ export default async function UnderwritersPage({
                             <span>{p.years_experience} yrs</span>
                           )}
                         </div>
-                        {p.bio && (
-                          <p className="mt-2 line-clamp-2 text-sm text-[var(--color-fg)]/80">
-                            {p.bio}
-                          </p>
-                        )}
-                        {tags.length > 0 && (
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {tags.map((slug) => (
-                              <Badge key={slug} variant="default">
-                                {SPECIALTIES_BY_SLUG[slug]?.label ?? slug}
-                              </Badge>
-                            ))}
-                          </div>
-                        )}
+                        {/* Bio: always occupies 2 lines worth of space */}
+                        <p className="mt-2 line-clamp-2 text-sm text-[var(--color-fg)]/80 min-h-[2.5rem]">
+                          {p.bio ?? ""}
+                        </p>
+                        {/* Specialty tags: always 1 row, max 2 shown + overflow pill */}
+                        <div className="mt-2 flex items-center gap-1.5 flex-nowrap overflow-hidden">
+                          {visibleTags.length > 0 ? (
+                            <>
+                              {visibleTags.map((slug) => (
+                                <Badge key={slug} variant="default" className="shrink-0">
+                                  {SPECIALTIES_BY_SLUG[slug]?.label ?? slug}
+                                </Badge>
+                              ))}
+                              {overflow > 0 && (
+                                <Badge variant="default" className="shrink-0 text-[var(--color-muted)]">
+                                  +{overflow} more →
+                                </Badge>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-xs text-[var(--color-muted)]">No specialties listed</span>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-right">
+                      <div className="text-right shrink-0">
                         <div className="inline-flex items-center gap-1 text-sm font-semibold">
                           <Star className="h-4 w-4 text-[var(--color-accent)]" />
                           {p.rating ? Number(p.rating).toFixed(2) : "—"}
