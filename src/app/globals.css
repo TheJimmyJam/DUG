@@ -1,0 +1,117 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+
+  /* DUG palette — light defaults. Dark overrides live in @layer base below. */
+  --color-bg: #fafaf7;
+  --color-fg: #0f1419;
+  --color-muted: #6b7280;
+  --color-border: #e5e7eb;
+  --color-card: #ffffff;
+  --color-primary: #0D1F3D;
+  --color-primary-fg: #ffffff;
+  --color-accent: #1E88E5;
+  --color-accent-fg: #ffffff;
+  --color-success: #15803d;
+  --color-warning: #b45309;
+  --color-danger: #b91c1c;
+  /* Brand mark — overridden in dark mode so the logo stays legible */
+  --brand-mark-navy: #0D1F3D;
+  --brand-mark-accent: #1E88E5;
+}
+
+@layer base {
+  /* ---------- Dark theme ---------- */
+  [data-theme="dark"] {
+    --color-bg: #0a0e1a;
+    --color-fg: #e6e8ee;
+    --color-muted: #8b93a7;
+    --color-border: #1f2640;
+    --color-card: #11172b;
+    /* In dark mode the brand navy disappears, so we swap primary to bright blue
+       so buttons/badges keep contrast. Navy becomes muted-bg flavor. */
+    --color-primary: #4DA3F0;
+    --color-primary-fg: #07101e;
+    --color-accent: #60a5fa;
+    --color-accent-fg: #07101e;
+    --color-success: #4ade80;
+    --color-warning: #f59e0b;
+    --color-danger: #f87171;
+    --brand-mark-navy: #cdd5e6;
+    --brand-mark-accent: #60a5fa;
+  }
+
+  /* ---------- Base ---------- */
+  * {
+    border-color: var(--color-border);
+  }
+  html,
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body {
+    min-height: 100dvh;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  /* Smooth color transitions ONLY during a manual theme toggle.
+     The `theme-switching` class is added by ThemeToggle for a brief window —
+     not on every page navigation, which would make navs feel laggy. */
+  html.theme-switching,
+  html.theme-switching body,
+  html.theme-switching header,
+  html.theme-switching footer,
+  html.theme-switching .card,
+  html.theme-switching button,
+  html.theme-switching input,
+  html.theme-switching textarea,
+  html.theme-switching select {
+    transition:
+      background-color 0.15s ease,
+      border-color 0.15s ease,
+      color 0.15s ease;
+  }
+  /* Inputs/selects pick up theme bg too */
+  input, textarea, select {
+    background-color: var(--color-card);
+    color: var(--color-fg);
+  }
+}
+
+@keyframes toast-in {
+  0% {
+    transform: translateY(-8px);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Custom utilities */
+@utility container-page {
+  margin-inline: auto;
+  padding-inline: 1rem;
+  max-width: 72rem;
+  width: 100%;
+  @media (min-width: 640px) {
+    padding-inline: 1.5rem;
+  }
+  @media (min-width: 1024px) {
+    padding-inline: 2rem;
+  }
+}

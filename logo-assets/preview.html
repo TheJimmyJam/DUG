@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DUG — Logo Asset Preview</title>
+<link rel="icon" href="favicon.ico">
+<style>
+  :root {
+    --navy: #0D1F3D;
+    --blue: #1E88E5;
+    --bg: #F6F8FB;
+    --line: #E5E9F0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--navy);
+  }
+  header {
+    padding: 32px 48px;
+    background: white;
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 { margin: 0; font-size: 22px; letter-spacing: -0.5px; }
+  header p { margin: 4px 0 0; color: #5A6478; font-size: 14px; }
+  main { padding: 32px 48px; max-width: 1400px; margin: 0 auto; }
+  section { margin-bottom: 40px; }
+  h2 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 1.2px; color: #5A6478; margin: 0 0 16px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: white;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+  .card .swatch {
+    width: 100%;
+    height: 140px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 12px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: white;
+  }
+  .card .swatch.checker {
+    background-image:
+      linear-gradient(45deg, #f0f0f0 25%, transparent 25%),
+      linear-gradient(-45deg, #f0f0f0 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #f0f0f0 75%),
+      linear-gradient(-45deg, transparent 75%, #f0f0f0 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+  }
+  .card img { max-width: 100%; max-height: 130px; display: block; }
+  .card .name { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+  .card .meta { font-size: 11px; color: #8B93A6; }
+  .lockup-card .swatch { height: 200px; }
+  .lockup-card img { max-height: 180px; }
+  .palette {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 16px;
+  }
+  .swatch-card {
+    background: white;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .swatch-color { height: 110px; }
+  .swatch-meta { padding: 14px 16px; font-size: 13px; }
+  .swatch-meta b { display: block; font-size: 14px; margin-bottom: 4px; }
+  .swatch-meta span { color: #5A6478; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>DUG &mdash; Logo Asset Library</h1>
+  <p>Decentralized Underwriting Group</p>
+</header>
+<main>
+
+  <section>
+    <h2>Lockups</h2>
+    <div class="grid">
+      <div class="card lockup-card">
+        <div class="swatch checker"><img src="png/dug-horizontal.png" alt="horizontal"></div>
+        <div class="name">Horizontal lockup</div>
+        <div class="meta">SVG / PNG &middot; transparent</div>
+      </div>
+      <div class="card lockup-card">
+        <div class="swatch checker"><img src="png/dug-vertical.png" alt="vertical"></div>
+        <div class="name">Vertical lockup</div>
+        <div class="meta">SVG / PNG &middot; transparent</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Icon &mdash; transparent</h2>
+    <div class="grid">
+      <div class="card"><div class="swatch checker"><img src="png/dug-icon-1024.png" alt=""></div><div class="name">dug-icon</div><div class="meta">128 / 256 / 512 / 1024</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>App icon variants</h2>
+    <div class="grid">
+      <div class="card"><div class="swatch"><img src="png/dug-icon-light-1024.png" alt=""></div><div class="name">Light</div><div class="meta">512 / 1024</div></div>
+      <div class="card"><div class="swatch"><img src="png/dug-icon-blue-1024.png" alt=""></div><div class="name">Blue</div><div class="meta">512 / 1024</div></div>
+      <div class="card"><div class="swatch"><img src="png/dug-icon-dark-1024.png" alt=""></div><div class="name">Dark</div><div class="meta">512 / 1024</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Favicon</h2>
+    <div class="grid">
+      <div class="card"><div class="swatch"><img src="png/dug-favicon-16.png" style="image-rendering: pixelated; max-height: 64px;" alt=""></div><div class="name">16 &times; 16</div></div>
+      <div class="card"><div class="swatch"><img src="png/dug-favicon-32.png" style="image-rendering: pixelated; max-height: 96px;" alt=""></div><div class="name">32 &times; 32</div></div>
+      <div class="card"><div class="swatch"><img src="png/dug-favicon-64.png" alt=""></div><div class="name">64 &times; 64</div></div>
+      <div class="card"><div class="swatch"><img src="png/dug-favicon-180.png" alt=""></div><div class="name">180 &times; 180 (Apple touch)</div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Color palette</h2>
+    <div class="palette">
+      <div class="swatch-card">
+        <div class="swatch-color" style="background:#0D1F3D"></div>
+        <div class="swatch-meta"><b>#0D1F3D</b><span>RGB 13 31 61 &middot; CMYK 100 78 38 56</span></div>
+      </div>
+      <div class="swatch-card">
+        <div class="swatch-color" style="background:#1E88E5"></div>
+        <div class="swatch-meta"><b>#1E88E5</b><span>RGB 30 136 229 &middot; CMYK 80 40 0 0</span></div>
+      </div>
+    </div>
+  </section>
+
+</main>
+</body>
+</html>

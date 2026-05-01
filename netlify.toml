@@ -1,0 +1,23 @@
+# Netlify configuration for DUG.
+# Connect this repo at app.netlify.com → Add new site → Import from Git → TheJimmyJam/DUG
+# Then add env vars under Site settings → Environment variables (see below).
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# Use the official Next.js runtime — handles middleware, server actions, ISR.
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# Required env vars (set in Netlify dashboard, NOT here):
+#   NEXT_PUBLIC_SUPABASE_URL
+#   NEXT_PUBLIC_SUPABASE_ANON_KEY
+#   SUPABASE_SERVICE_ROLE_KEY
+#   RESEND_API_KEY
+#   RESEND_FROM_EMAIL
+#   NEXT_PUBLIC_APP_URL  (e.g. https://dug.netlify.app or your custom domain)
+#   NEXT_PUBLIC_DEMO_MODE=true  (or false for production)

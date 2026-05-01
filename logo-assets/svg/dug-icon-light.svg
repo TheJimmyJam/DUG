@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Rounded white background -->
+  <rect x="0" y="0" width="512" height="512" rx="100" ry="100" fill="#FFFFFF" stroke="#E5E7EB" stroke-width="2"/>
+
+  <g transform="translate(56,56) scale(1)">
+    <g stroke="#0D1F3D" stroke-width="7" stroke-linecap="round" fill="none">
+      <line x1="200" y1="60" x2="321" y2="130"/>
+      <line x1="321" y1="130" x2="321" y2="270"/>
+      <line x1="321" y1="270" x2="200" y2="340"/>
+      <line x1="200" y1="340" x2="79" y2="270"/>
+      <line x1="79" y1="270" x2="79" y2="130"/>
+      <line x1="79" y1="130" x2="200" y2="60"/>
+    </g>
+    <line x1="200" y1="60" x2="321" y2="130" stroke="#1E88E5" stroke-width="7" stroke-linecap="round"/>
+
+    <path d="M 200 135 L 252 153 L 252 222 Q 252 262 200 285 Q 148 262 148 222 L 148 153 Z" fill="#0D1F3D"/>
+    <path d="M 200 135 L 252 153 L 252 222 Q 252 262 200 285 L 200 135 Z" fill="#1E88E5"/>
+
+    <circle cx="200" cy="60" r="20" fill="#0D1F3D"/>
+    <circle cx="321" cy="130" r="20" fill="#1E88E5"/>
+    <circle cx="321" cy="270" r="20" fill="#0D1F3D"/>
+    <circle cx="200" cy="340" r="20" fill="#0D1F3D"/>
+    <circle cx="79" cy="270" r="20" fill="#0D1F3D"/>
+    <circle cx="79" cy="130" r="20" fill="#0D1F3D"/>
+  </g>
+</svg>
