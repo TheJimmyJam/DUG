@@ -221,7 +221,7 @@ export function JobsBoard({ jobs }: { jobs: BoardJob[] }) {
             </button>
             {!isCollapsed && (
               <div className="border-t p-3">
-                <ul className="grid grid-cols-2 gap-3">
+                <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   {items.map((job) => (
                     <ExpandableJobRow
                       key={job.id}

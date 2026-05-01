@@ -20,7 +20,7 @@ export default function HomePage() {
                 <Badge variant="accent" className="mb-4">
                   Beta — for independent underwriters
                 </Badge>
-                <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
+                <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl lg:text-6xl">
                   Underwriting on your terms.
                 </h1>
                 <p className="mt-5 text-lg text-[var(--color-muted)] sm:text-xl">

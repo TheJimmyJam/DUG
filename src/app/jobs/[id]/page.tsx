@@ -136,7 +136,7 @@ export default async function JobDetailPage({ params }: PageProps) {
           </div>
 
           {/* Sidebar */}
-          <aside className="space-y-4">
+          <aside className="space-y-4 order-first lg:order-last">
             <Card>
               <CardContent className="pt-6 space-y-4">
                 <div>
