@@ -60,7 +60,9 @@ declare module "lucide-react" {
   export const Moon: LucideIcon;
   export const MoreHorizontal: LucideIcon;
   export const Plus: LucideIcon;
+  export const RotateCcw: LucideIcon;
   export const Search: LucideIcon;
+  export const Sparkles: LucideIcon;
   export const Settings: LucideIcon;
   export const Shield: LucideIcon;
   export const Star: LucideIcon;
