@@ -284,7 +284,7 @@ const ASK_PHRASES_D = [
   "Need an underwriting opinion letter we can share with the board.",
 ];
 
-function pickD<T>(arr: T[]): T {
+function pickD<T>(arr: readonly T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
