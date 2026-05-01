@@ -810,18 +810,18 @@ function DemoTab({ onRefreshAll }: { onRefreshAll: () => void }) {
           <div
             className={`rounded-md px-4 py-3 text-sm ${
               result.success
-                ? "bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-300"
-                : "bg-red-50 text-red-800 dark:bg-red-900/20 dark:text-red-300"
+                ? "bg-slate-800 border border-slate-700 text-slate-100"
+                : "bg-slate-800 border border-red-700 text-slate-100"
             }`}
           >
             {result.success ? (
               <>
-                ✅ Done! Created <strong>{result.underwritersCreated}</strong> underwriters
-                and <strong>{result.jobsCreated}</strong> jobs. Your Users and Jobs tabs have
+                ✅ Done! Created <strong className="text-white">{result.underwritersCreated}</strong> underwriters
+                and <strong className="text-white">{result.jobsCreated}</strong> jobs. Your Users and Jobs tabs have
                 been refreshed.
               </>
             ) : (
-              <>❌ Error: {result.error}</>
+              <>❌ <strong className="text-white">Error:</strong> {result.error}</>
             )}
           </div>
         )}
