@@ -187,6 +187,7 @@ export function JobsBoard({ jobs }: { jobs: BoardJob[] }) {
       )}
 
       {/* Groups */}
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
       {grouped.map(([slug, items]) => {
         const meta = SPECIALTIES_BY_SLUG[slug];
         const isCollapsed = collapsed.has(slug);
@@ -236,6 +237,7 @@ export function JobsBoard({ jobs }: { jobs: BoardJob[] }) {
           </section>
         );
       })}
+      </div>
     </div>
   );
 }
