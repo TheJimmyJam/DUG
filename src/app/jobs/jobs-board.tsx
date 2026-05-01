@@ -16,7 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SpecialtyFilter } from "@/components/specialty-filter";
-import { SPECIALTIES_BY_SLUG } from "@/lib/specialties";
+import { SPECIALTIES, SPECIALTIES_BY_SLUG } from "@/lib/specialties";
 import { cn, formatCurrency, formatRelativeTime } from "@/lib/utils";
 
 export type BoardJob = {
