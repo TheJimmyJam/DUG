@@ -13,6 +13,7 @@ import {
   deleteJobAction,
   updateJobAction,
   runDemoGeneratorAction,
+  clearDemoAction,
 } from "./actions";
 
 // ---------------------------------------------------------------------------
@@ -739,30 +740,52 @@ function JobsTab({
 // ===========================================================================
 function DemoTab({ onRefreshAll }: { onRefreshAll: () => void }) {
   const [pending, startTransition] = useTransition();
+  const [clearing, startClear] = useTransition();
   const [result, setResult] = useState<{
+    type: "generate" | "clear";
     success: boolean;
     underwritersCreated?: number;
     jobsCreated?: number;
+    usersDeleted?: number;
     error?: string;
   } | null>(null);
   const [runCount, setRunCount] = useState(0);
+  const [confirmClear, setConfirmClear] = useState(false);
 
   function handleRun() {
     startTransition(async () => {
       setResult(null);
       const res = await runDemoGeneratorAction();
       if ("error" in res && res.error) {
-        setResult({ success: false, error: res.error as string });
+        setResult({ type: "generate", success: false, error: res.error as string });
       } else {
-        setResult(res as { success: boolean; underwritersCreated: number; jobsCreated: number });
+        setResult({ type: "generate", ...(res as { success: boolean; underwritersCreated: number; jobsCreated: number }) });
         setRunCount((c) => c + 1);
         onRefreshAll();
       }
     });
   }
 
+  function handleClear() {
+    setConfirmClear(false);
+    startClear(async () => {
+      setResult(null);
+      const res = await clearDemoAction();
+      if ("error" in res && res.error) {
+        setResult({ type: "clear", success: false, error: res.error as string });
+      } else {
+        setResult({ type: "clear", ...(res as { success: boolean; usersDeleted: number }) });
+        setRunCount(0);
+        onRefreshAll();
+      }
+    });
+  }
+
+  const busy = pending || clearing;
+
   return (
     <div className="max-w-2xl space-y-6">
+      {/* Generate card */}
       <div className="rounded-lg border bg-[var(--color-card)] p-6 space-y-4">
         <div className="flex items-start gap-4">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-purple-100 text-2xl dark:bg-purple-900/30">
@@ -773,8 +796,7 @@ function DemoTab({ onRefreshAll }: { onRefreshAll: () => void }) {
             <p className="mt-1 text-sm text-[var(--color-muted)]">
               Each run creates <strong>15 new underwriter accounts</strong> and{" "}
               <strong>20 new job postings</strong> using realistic fake data. Runs
-              are additive — click as many times as you want and the totals will
-              keep growing.
+              are additive — click as many times as you want.
             </p>
           </div>
         </div>
@@ -793,7 +815,7 @@ function DemoTab({ onRefreshAll }: { onRefreshAll: () => void }) {
         <Button
           variant="primary"
           onClick={handleRun}
-          disabled={pending}
+          disabled={busy}
           className="w-full py-3 text-base"
         >
           {pending ? (
@@ -806,33 +828,90 @@ function DemoTab({ onRefreshAll }: { onRefreshAll: () => void }) {
           )}
         </Button>
 
-        {result && (
-          <div
-            className={`rounded-md px-4 py-3 text-sm ${
-              result.success
-                ? "bg-slate-800 border border-slate-700 text-slate-100"
-                : "bg-slate-800 border border-red-700 text-slate-100"
-            }`}
+        {runCount > 0 && (
+          <p className="text-sm text-[var(--color-muted)]">
+            You&apos;ve run the generator <strong>{runCount}</strong> time{runCount !== 1 ? "s" : ""} this session,
+            adding roughly <strong>{runCount * 15} underwriters</strong> and <strong>{runCount * 20} jobs</strong>.
+          </p>
+        )}
+      </div>
+
+      {/* Clear card */}
+      <div className="rounded-lg border border-red-200 dark:border-red-900/40 bg-[var(--color-card)] p-6 space-y-4">
+        <div className="flex items-start gap-4">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-red-100 text-2xl dark:bg-red-900/30">
+            🗑️
+          </div>
+          <div>
+            <h2 className="text-xl font-semibold">Clear All Demo Data</h2>
+            <p className="mt-1 text-sm text-[var(--color-muted)]">
+              Permanently deletes every job flagged <code className="rounded bg-[var(--color-border)] px-1 font-mono text-xs">is_demo=true</code> and every
+              auth user whose handle starts with <code className="rounded bg-[var(--color-border)] px-1 font-mono text-xs">demo-</code>. Cannot be undone.
+            </p>
+          </div>
+        </div>
+
+        {!confirmClear ? (
+          <button
+            type="button"
+            onClick={() => setConfirmClear(true)}
+            disabled={busy}
+            className="w-full rounded-md border border-red-400 bg-transparent px-4 py-3 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50"
           >
-            {result.success ? (
-              <>
-                ✅ Done! Created <strong className="text-white">{result.underwritersCreated}</strong> underwriters
-                and <strong className="text-white">{result.jobsCreated}</strong> jobs. Your Users and Jobs tabs have
-                been refreshed.
-              </>
-            ) : (
-              <>❌ <strong className="text-white">Error:</strong> {result.error}</>
-            )}
+            🗑️ Remove all demo data
+          </button>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm font-medium text-red-600 dark:text-red-400">
+              Are you sure? This will delete all demo jobs and all demo user accounts permanently.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={handleClear}
+                disabled={busy}
+                className="flex-1 rounded-md bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 transition-colors disabled:opacity-50"
+              >
+                {clearing ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                    Clearing…
+                  </span>
+                ) : (
+                  "Yes, delete everything"
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmClear(false)}
+                disabled={busy}
+                className="flex-1 rounded-md border border-[var(--color-border)] px-4 py-2.5 text-sm font-medium hover:bg-[var(--color-border)]/30 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         )}
       </div>
 
-      {runCount > 0 && (
-        <div className="text-sm text-[var(--color-muted)]">
-          You&apos;ve run the generator <strong>{runCount}</strong> time{runCount !== 1 ? "s" : ""} this session,
-          adding roughly{" "}
-          <strong>{runCount * 15} underwriters</strong> and{" "}
-          <strong>{runCount * 20} jobs</strong> total.
+      {/* Result feedback */}
+      {result && (
+        <div
+          className={`rounded-md px-4 py-3 text-sm border ${
+            result.success
+              ? "bg-slate-800 border-slate-700 text-slate-100"
+              : "bg-slate-800 border-red-700 text-slate-100"
+          }`}
+        >
+          {result.success ? (
+            result.type === "generate" ? (
+              <>✅ Done! Created <strong className="text-white">{result.underwritersCreated}</strong> underwriters and <strong className="text-white">{result.jobsCreated}</strong> jobs. Tabs refreshed.</>
+            ) : (
+              <>🗑️ Cleared. Deleted <strong className="text-white">{result.usersDeleted}</strong> demo user{result.usersDeleted !== 1 ? "s" : ""} and all demo jobs. Tabs refreshed.</>
+            )
+          ) : (
+            <>❌ <strong className="text-white">Error:</strong> {result.error}</>
+          )}
         </div>
       )}
     </div>
