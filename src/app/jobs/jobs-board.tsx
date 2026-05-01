@@ -15,7 +15,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { SPECIALTIES_BY_SLUG } from "@/lib/specialties";
+import { SPECIALTIES, SPECIALTIES_BY_SLUG } from "@/lib/specialties";
 import { cn, formatCurrency, formatRelativeTime } from "@/lib/utils";
 
 export type BoardJob = {
@@ -57,6 +57,9 @@ const JOB_TYPE_LABEL: Record<string, string> = {
   other: "Other",
 };
 
+// Group order for the specialty filter strip
+const GROUP_ORDER = ["Property", "Liability", "Specialty", "Emerging", "Personal", "Other"];
+
 function compareJobs(a: BoardJob, b: BoardJob, key: SortKey): number {
   switch (key) {
     case "newest":
@@ -75,22 +78,65 @@ function compareJobs(a: BoardJob, b: BoardJob, key: SortKey): number {
 export function JobsBoard({ jobs }: { jobs: BoardJob[] }) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("newest");
+  const [selectedSpecialties, setSelectedSpecialties] = useState<Set<string>>(new Set());
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
+  // Specialties that have at least one job, in taxonomy group order
+  const availableSpecialties = useMemo(() => {
+    const slugsWithJobs = new Set(jobs.map((j) => j.primary_specialty));
+    return SPECIALTIES.filter((s) => slugsWithJobs.has(s.slug)).sort((a, b) => {
+      const gi = GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group);
+      return gi !== 0 ? gi : a.label.localeCompare(b.label);
+    });
+  }, [jobs]);
+
+  // Grouped by taxonomy group for the filter strip header labels
+  const specialtyGroups = useMemo(() => {
+    const map = new Map<string, typeof availableSpecialties>();
+    for (const s of availableSpecialties) {
+      const arr = map.get(s.group) ?? [];
+      arr.push(s);
+      map.set(s.group, arr);
+    }
+    return [...map.entries()];
+  }, [availableSpecialties]);
+
+  function toggleSpecialty(slug: string) {
+    setSelectedSpecialties((prev) => {
+      const next = new Set(prev);
+      if (next.has(slug)) next.delete(slug);
+      else next.add(slug);
+      return next;
+    });
+  }
+
+  function clearSpecialties() {
+    setSelectedSpecialties(new Set());
+  }
+
   const grouped = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const filtered = q
-      ? jobs.filter(
-          (j) =>
-            j.title.toLowerCase().includes(q) ||
-            j.summary.toLowerCase().includes(q) ||
-            j.description.toLowerCase().includes(q) ||
-            (SPECIALTIES_BY_SLUG[j.primary_specialty]?.label ?? "")
-              .toLowerCase()
-              .includes(q),
-        )
-      : jobs;
+
+    let filtered = jobs;
+
+    // Text search
+    if (q) {
+      filtered = filtered.filter(
+        (j) =>
+          j.title.toLowerCase().includes(q) ||
+          j.summary.toLowerCase().includes(q) ||
+          j.description.toLowerCase().includes(q) ||
+          (SPECIALTIES_BY_SLUG[j.primary_specialty]?.label ?? "")
+            .toLowerCase()
+            .includes(q),
+      );
+    }
+
+    // Specialty filter
+    if (selectedSpecialties.size > 0) {
+      filtered = filtered.filter((j) => selectedSpecialties.has(j.primary_specialty));
+    }
 
     const sorted = [...filtered].sort((a, b) => compareJobs(a, b, sort));
 
@@ -106,7 +152,7 @@ export function JobsBoard({ jobs }: { jobs: BoardJob[] }) {
       const bl = SPECIALTIES_BY_SLUG[b]?.label ?? b;
       return al.localeCompare(bl);
     });
-  }, [jobs, query, sort]);
+  }, [jobs, query, sort, selectedSpecialties]);
 
   const totalCount = jobs.length;
   const visibleCount = grouped.reduce((n, [, arr]) => n + arr.length, 0);
@@ -128,9 +174,11 @@ export function JobsBoard({ jobs }: { jobs: BoardJob[] }) {
     });
   }
 
+  const hasActiveFilters = selectedSpecialties.size > 0 || query.trim().length > 0;
+
   return (
-    <div className="space-y-5">
-      {/* Toolbar */}
+    <div className="space-y-4">
+      {/* ── Search + Sort ── */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-muted)]" />
@@ -167,76 +215,146 @@ export function JobsBoard({ jobs }: { jobs: BoardJob[] }) {
         </div>
       </div>
 
-      <div className="text-xs text-[var(--color-muted)]">
-        Showing {visibleCount} of {totalCount} jobs · {grouped.length}{" "}
-        {grouped.length === 1 ? "specialty" : "specialties"}
+      {/* ── Specialty filter strip ── */}
+      {availableSpecialties.length > 0 && (
+        <div className="rounded-lg border bg-[var(--color-card)] px-4 py-3 space-y-3">
+          {specialtyGroups.map(([group, specs]) => (
+            <div key={group} className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <span className="w-20 shrink-0 text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+                {group}
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {specs.map((s) => {
+                  const active = selectedSpecialties.has(s.slug);
+                  return (
+                    <button
+                      key={s.slug}
+                      type="button"
+                      onClick={() => toggleSpecialty(s.slug)}
+                      className={cn(
+                        "rounded-full border px-3 py-1 text-xs font-medium transition-all",
+                        active
+                          ? "border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-fg)] shadow-sm"
+                          : "border-[var(--color-border)] bg-transparent text-[var(--color-muted)] hover:border-[var(--color-primary)]/60 hover:text-[var(--color-fg)]",
+                      )}
+                    >
+                      {s.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+
+          {/* Clear row */}
+          {selectedSpecialties.size > 0 && (
+            <div className="flex items-center gap-2 border-t border-[var(--color-border)] pt-2">
+              <span className="text-xs text-[var(--color-muted)]">
+                {selectedSpecialties.size} selected
+              </span>
+              <button
+                type="button"
+                onClick={clearSpecialties}
+                className="inline-flex items-center gap-1 text-xs text-[var(--color-muted)] underline-offset-2 hover:text-[var(--color-fg)] hover:underline"
+              >
+                <X className="h-3 w-3" />
+                Clear
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Count line ── */}
+      <div className="flex items-center justify-between text-xs text-[var(--color-muted)]">
+        <span>
+          Showing {visibleCount} of {totalCount} jobs · {grouped.length}{" "}
+          {grouped.length === 1 ? "specialty" : "specialties"}
+        </span>
+        {hasActiveFilters && (
+          <button
+            type="button"
+            onClick={() => { setQuery(""); clearSpecialties(); }}
+            className="inline-flex items-center gap-1 hover:text-[var(--color-fg)] hover:underline underline-offset-2"
+          >
+            <X className="h-3 w-3" />
+            Clear all filters
+          </button>
+        )}
       </div>
 
-      {/* Empty */}
+      {/* ── Empty ── */}
       {visibleCount === 0 && (
         <Card>
           <CardContent className="pt-8 pb-8 text-center">
             <div className="text-base font-semibold">No matches.</div>
             <p className="mt-1 text-sm text-[var(--color-muted)]">
-              {query
-                ? "Try clearing the search or sorting differently."
+              {hasActiveFilters
+                ? "Try removing some filters or clearing the search."
                 : "No open jobs at the moment."}
             </p>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={() => { setQuery(""); clearSpecialties(); }}
+                className="mt-3 text-sm text-[var(--color-primary)] hover:underline underline-offset-2"
+              >
+                Clear all filters
+              </button>
+            )}
           </CardContent>
         </Card>
       )}
 
-      {/* Groups */}
+      {/* ── Groups ── */}
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-      {grouped.map(([slug, items]) => {
-        const meta = SPECIALTIES_BY_SLUG[slug];
-        const isCollapsed = collapsed.has(slug);
-        return (
-          <section key={slug} className="rounded-lg border bg-[var(--color-card)]">
-            <button
-              type="button"
-              onClick={() => toggleGroup(slug)}
-              aria-expanded={!isCollapsed}
-              className="flex w-full items-center justify-between gap-3 px-5 py-3 text-left hover:bg-[var(--color-border)]/30"
-            >
-              <div className="flex items-center gap-3">
-                {isCollapsed ? (
-                  <ChevronRight className="h-4 w-4 text-[var(--color-muted)]" />
-                ) : (
-                  <ChevronDown className="h-4 w-4 text-[var(--color-muted)]" />
-                )}
-                <div>
-                  <div className="font-semibold">
-                    {meta?.label ?? slug}
-                  </div>
-                  {meta?.group && (
-                    <div className="text-xs text-[var(--color-muted)]">
-                      {meta.group}
-                    </div>
+        {grouped.map(([slug, items]) => {
+          const meta = SPECIALTIES_BY_SLUG[slug];
+          const isCollapsed = collapsed.has(slug);
+          return (
+            <section key={slug} className="rounded-lg border bg-[var(--color-card)]">
+              <button
+                type="button"
+                onClick={() => toggleGroup(slug)}
+                aria-expanded={!isCollapsed}
+                className="flex w-full items-center justify-between gap-3 px-5 py-3 text-left hover:bg-[var(--color-border)]/30"
+              >
+                <div className="flex items-center gap-3">
+                  {isCollapsed ? (
+                    <ChevronRight className="h-4 w-4 text-[var(--color-muted)]" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4 text-[var(--color-muted)]" />
                   )}
+                  <div>
+                    <div className="font-semibold">{meta?.label ?? slug}</div>
+                    {meta?.group && (
+                      <div className="text-xs text-[var(--color-muted)]">
+                        {meta.group}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-              <Badge variant="primary">
-                {items.length} {items.length === 1 ? "job" : "jobs"}
-              </Badge>
-            </button>
-            {!isCollapsed && (
-              <div className="border-t p-3">
-                <ul className="grid grid-cols-1 gap-3">
-                  {items.map((job) => (
-                    <ExpandableJobRow
-                      key={job.id}
-                      job={job}
-                      expanded={expanded.has(job.id)}
-                      onToggle={() => toggleExpand(job.id)}
-                    />
-                  ))}
-                </ul>
-              </div>
-            )}
-          </section>
-        );
-      })}
+                <Badge variant="primary">
+                  {items.length} {items.length === 1 ? "job" : "jobs"}
+                </Badge>
+              </button>
+              {!isCollapsed && (
+                <div className="border-t p-3">
+                  <ul className="grid grid-cols-1 gap-3">
+                    {items.map((job) => (
+                      <ExpandableJobRow
+                        key={job.id}
+                        job={job}
+                        expanded={expanded.has(job.id)}
+                        onToggle={() => toggleExpand(job.id)}
+                      />
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </section>
+          );
+        })}
       </div>
     </div>
   );

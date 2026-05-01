@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
-import { getCurrentUser } from "@/lib/supabase/server";
+import { getCurrentUser, createClient } from "@/lib/supabase/server";
 import { logOutAction } from "@/app/auth/actions";
 import { Button } from "@/components/ui/button";
 
@@ -14,12 +14,23 @@ export default async function DashboardLayout({
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
+  // Check if user is admin (lightweight select, no join)
+  const supabase = await createClient();
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("is_admin")
+    .eq("id", user.id)
+    .single();
+
+  const isAdmin = profile?.is_admin ?? false;
+
   const links = [
     { href: "/dashboard", label: "Overview" },
     { href: "/dashboard/jobs", label: "My jobs" },
     { href: "/dashboard/posted", label: "Posted by me" },
     { href: "/dashboard/profile", label: "Profile" },
-  ] as const;
+    ...(isAdmin ? [{ href: "/dashboard/admin", label: "⚙ Admin" }] : []),
+  ];
 
   return (
     <>
@@ -32,7 +43,11 @@ export default async function DashboardLayout({
                 key={item.href}
                 href={item.href}
                 prefetch={true}
-                className="rounded-md px-3 py-1.5 text-[var(--color-fg)] hover:bg-[var(--color-border)]/50"
+                className={`rounded-md px-3 py-1.5 text-[var(--color-fg)] hover:bg-[var(--color-border)]/50 ${
+                  item.href === "/dashboard/admin"
+                    ? "font-medium text-amber-700 dark:text-amber-400"
+                    : ""
+                }`}
               >
                 {item.label}
               </Link>
