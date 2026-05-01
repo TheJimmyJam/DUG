@@ -15,7 +15,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { SPECIALTIES, SPECIALTIES_BY_SLUG } from "@/lib/specialties";
+import { SpecialtyFilter } from "@/components/specialty-filter";
+import { SPECIALTIES_BY_SLUG } from "@/lib/specialties";
 import { cn, formatCurrency, formatRelativeTime } from "@/lib/utils";
 
 export type BoardJob = {
@@ -91,29 +92,6 @@ export function JobsBoard({ jobs }: { jobs: BoardJob[] }) {
     });
   }, [jobs]);
 
-  // Grouped by taxonomy group for the filter strip header labels
-  const specialtyGroups = useMemo(() => {
-    const map = new Map<string, typeof availableSpecialties>();
-    for (const s of availableSpecialties) {
-      const arr = map.get(s.group) ?? [];
-      arr.push(s);
-      map.set(s.group, arr);
-    }
-    return [...map.entries()];
-  }, [availableSpecialties]);
-
-  function toggleSpecialty(slug: string) {
-    setSelectedSpecialties((prev) => {
-      const next = new Set(prev);
-      if (next.has(slug)) next.delete(slug);
-      else next.add(slug);
-      return next;
-    });
-  }
-
-  function clearSpecialties() {
-    setSelectedSpecialties(new Set());
-  }
 
   const grouped = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -215,54 +193,13 @@ export function JobsBoard({ jobs }: { jobs: BoardJob[] }) {
         </div>
       </div>
 
-      {/* ── Specialty filter strip ── */}
+      {/* ── Specialty filter ── */}
       {availableSpecialties.length > 0 && (
-        <div className="rounded-lg border bg-[var(--color-card)] px-4 py-3 space-y-3">
-          {specialtyGroups.map(([group, specs]) => (
-            <div key={group} className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <span className="w-20 shrink-0 text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">
-                {group}
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {specs.map((s) => {
-                  const active = selectedSpecialties.has(s.slug);
-                  return (
-                    <button
-                      key={s.slug}
-                      type="button"
-                      onClick={() => toggleSpecialty(s.slug)}
-                      className={cn(
-                        "rounded-full border px-3 py-1 text-xs font-medium transition-all",
-                        active
-                          ? "border-[var(--color-primary)] bg-[var(--color-primary)] text-[var(--color-primary-fg)] shadow-sm"
-                          : "border-[var(--color-border)] bg-transparent text-[var(--color-muted)] hover:border-[var(--color-primary)]/60 hover:text-[var(--color-fg)]",
-                      )}
-                    >
-                      {s.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-
-          {/* Clear row */}
-          {selectedSpecialties.size > 0 && (
-            <div className="flex items-center gap-2 border-t border-[var(--color-border)] pt-2">
-              <span className="text-xs text-[var(--color-muted)]">
-                {selectedSpecialties.size} selected
-              </span>
-              <button
-                type="button"
-                onClick={clearSpecialties}
-                className="inline-flex items-center gap-1 text-xs text-[var(--color-muted)] underline-offset-2 hover:text-[var(--color-fg)] hover:underline"
-              >
-                <X className="h-3 w-3" />
-                Clear
-              </button>
-            </div>
-          )}
-        </div>
+        <SpecialtyFilter
+          available={availableSpecialties.map((s) => s.slug)}
+          selected={selectedSpecialties}
+          onChange={setSelectedSpecialties}
+        />
       )}
 
       {/* ── Count line ── */}
@@ -274,7 +211,7 @@ export function JobsBoard({ jobs }: { jobs: BoardJob[] }) {
         {hasActiveFilters && (
           <button
             type="button"
-            onClick={() => { setQuery(""); clearSpecialties(); }}
+            onClick={() => { setQuery(""); setSelectedSpecialties(new Set()); }}
             className="inline-flex items-center gap-1 hover:text-[var(--color-fg)] hover:underline underline-offset-2"
           >
             <X className="h-3 w-3" />
@@ -296,7 +233,7 @@ export function JobsBoard({ jobs }: { jobs: BoardJob[] }) {
             {hasActiveFilters && (
               <button
                 type="button"
-                onClick={() => { setQuery(""); clearSpecialties(); }}
+                onClick={() => { setQuery(""); setSelectedSpecialties(new Set()); }}
                 className="mt-3 text-sm text-[var(--color-primary)] hover:underline underline-offset-2"
               >
                 Clear all filters
