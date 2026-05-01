@@ -779,14 +779,14 @@ function DemoTab({ onRefreshAll }: { onRefreshAll: () => void }) {
           </div>
         </div>
 
-        <div className="rounded-md bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900 dark:bg-amber-900/20 dark:border-amber-900/30 dark:text-amber-200">
-          <strong>Heads up:</strong> Each run creates real Supabase auth users. Demo
+        <div className="rounded-md bg-slate-800 border border-slate-700 px-4 py-3 text-sm text-slate-100">
+          <strong className="text-white">Heads up:</strong> Each run creates real Supabase auth users. Demo
           underwriters get handles like{" "}
-          <code className="rounded bg-amber-200 px-1 py-0.5 font-mono text-xs text-amber-900 dark:bg-amber-800/50 dark:text-amber-100">demo-jamessmit-abc123</code>{" "}
+          <code className="rounded bg-slate-600 px-1 py-0.5 font-mono text-xs text-white">demo-jamessmit-abc123</code>{" "}
           and use the shared password{" "}
-          <code className="rounded bg-amber-200 px-1 py-0.5 font-mono text-xs text-amber-900 dark:bg-amber-800/50 dark:text-amber-100">DemoUW2026!</code>.
+          <code className="rounded bg-slate-600 px-1 py-0.5 font-mono text-xs text-white">DemoUW2026!</code>.
           Jobs are flagged{" "}
-          <code className="rounded bg-amber-200 px-1 py-0.5 font-mono text-xs text-amber-900 dark:bg-amber-800/50 dark:text-amber-100">is_demo=true</code>{" "}
+          <code className="rounded bg-slate-600 px-1 py-0.5 font-mono text-xs text-white">is_demo=true</code>{" "}
           and posted under your account.
         </div>
 
