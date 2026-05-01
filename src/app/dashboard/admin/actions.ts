@@ -480,3 +480,48 @@ export async function runDemoGeneratorAction() {
     jobsCreated: 20,
   };
 }
+
+// ===========================================================================
+// DEMO CLEANER — wipes all is_demo jobs + demo-* auth users
+// ===========================================================================
+
+export async function clearDemoAction() {
+  await assertAdmin();
+  const service = createServiceClient();
+
+  // 1. Delete all demo jobs
+  const { error: jobsError } = await service
+    .from("jobs")
+    .delete()
+    .eq("is_demo", true);
+
+  if (jobsError) return { error: `Failed to delete demo jobs: ${jobsError.message}` };
+
+  // 2. Find all demo profiles (handle starts with "demo-")
+  const { data: demoProfiles, error: profilesError } = await service
+    .from("profiles")
+    .select("id")
+    .like("handle", "demo-%");
+
+  if (profilesError) return { error: `Failed to find demo users: ${profilesError.message}` };
+
+  const demoIds = (demoProfiles ?? []).map((p) => p.id);
+
+  // 3. Delete each auth user — DB trigger cascades to profile + profile_specialties
+  let deletedUsers = 0;
+  for (const id of demoIds) {
+    const { error } = await service.auth.admin.deleteUser(id);
+    if (!error) deletedUsers++;
+    else console.error(`Failed to delete demo user ${id}: ${error.message}`);
+  }
+
+  revalidatePath("/dashboard/admin");
+  revalidatePath("/jobs");
+  revalidatePath("/underwriters");
+
+  return {
+    success: true,
+    jobsDeleted: 0, // already wiped above
+    usersDeleted: deletedUsers,
+  };
+}
