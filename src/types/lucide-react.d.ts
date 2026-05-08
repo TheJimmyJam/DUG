@@ -33,6 +33,7 @@ declare module "lucide-react" {
   export const Calendar: LucideIcon;
   export const Check: LucideIcon;
   export const CheckCircle: LucideIcon;
+  export const CheckCircle2: LucideIcon;
   export const ChevronDown: LucideIcon;
   export const ChevronLeft: LucideIcon;
   export const ChevronRight: LucideIcon;
@@ -42,11 +43,13 @@ declare module "lucide-react" {
   export const EyeOff: LucideIcon;
   export const FileText: LucideIcon;
   export const Filter: LucideIcon;
+  export const Flame: LucideIcon;
   export const Github: LucideIcon;
   export const Globe: LucideIcon;
   export const Home: LucideIcon;
   export const Info: LucideIcon;
   export const InfoIcon: LucideIcon;
+  export const Layers: LucideIcon;
   export const Loader2: LucideIcon;
   export const ListFilter: LucideIcon;
   export const Lock: LucideIcon;
@@ -54,13 +57,16 @@ declare module "lucide-react" {
   export const LogOut: LucideIcon;
   export const Mail: LucideIcon;
   export const MapPin: LucideIcon;
+  export const Medal: LucideIcon;
   export const Menu: LucideIcon;
   export const MessageSquare: LucideIcon;
   export const Monitor: LucideIcon;
   export const Moon: LucideIcon;
   export const MoreHorizontal: LucideIcon;
   export const Plus: LucideIcon;
+  export const RotateCcw: LucideIcon;
   export const Search: LucideIcon;
+  export const Sparkles: LucideIcon;
   export const Settings: LucideIcon;
   export const Shield: LucideIcon;
   export const Star: LucideIcon;
@@ -68,6 +74,7 @@ declare module "lucide-react" {
   export const ThumbsUp: LucideIcon;
   export const Trash: LucideIcon;
   export const TrendingUp: LucideIcon;
+  export const Trophy: LucideIcon;
   export const User: LucideIcon;
   export const UserPlus: LucideIcon;
   export const Users: LucideIcon;

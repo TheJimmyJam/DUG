@@ -19,8 +19,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      dojo_waitlist: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          referrer: string | null
+          role_hint: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          referrer?: string | null
+          role_hint?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          referrer?: string | null
+          role_hint?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       jobs: {
         Row: {
+          acquisition_source: string | null
           additional_specialties: string[]
           budget_cents: number | null
           budget_type: Database["public"]["Enums"]["budget_type"]
@@ -31,18 +59,25 @@ export type Database = {
           deadline_at: string | null
           description: string
           difficulty: number
+          engagement_tier: string
           estimated_hours: number | null
+          find_bounty_cents: number | null
           id: string
           is_demo: boolean
           job_type: Database["public"]["Enums"]["job_type"]
+          milestones: Json | null
+          platform_fee_bps: number
           poster_id: string
           primary_specialty: string
+          requester_type: Database["public"]["Enums"]["requester_type"] | null
+          sla_hours: number | null
           status: Database["public"]["Enums"]["job_status"]
           summary: string
           title: string
           updated_at: string
         }
         Insert: {
+          acquisition_source?: string | null
           additional_specialties?: string[]
           budget_cents?: number | null
           budget_type?: Database["public"]["Enums"]["budget_type"]
@@ -53,18 +88,25 @@ export type Database = {
           deadline_at?: string | null
           description: string
           difficulty?: number
+          engagement_tier?: string
           estimated_hours?: number | null
+          find_bounty_cents?: number | null
           id?: string
           is_demo?: boolean
           job_type: Database["public"]["Enums"]["job_type"]
+          milestones?: Json | null
+          platform_fee_bps?: number
           poster_id: string
           primary_specialty: string
+          requester_type?: Database["public"]["Enums"]["requester_type"] | null
+          sla_hours?: number | null
           status?: Database["public"]["Enums"]["job_status"]
           summary: string
           title: string
           updated_at?: string
         }
         Update: {
+          acquisition_source?: string | null
           additional_specialties?: string[]
           budget_cents?: number | null
           budget_type?: Database["public"]["Enums"]["budget_type"]
@@ -75,12 +117,18 @@ export type Database = {
           deadline_at?: string | null
           description?: string
           difficulty?: number
+          engagement_tier?: string
           estimated_hours?: number | null
+          find_bounty_cents?: number | null
           id?: string
           is_demo?: boolean
           job_type?: Database["public"]["Enums"]["job_type"]
+          milestones?: Json | null
+          platform_fee_bps?: number
           poster_id?: string
           primary_specialty?: string
+          requester_type?: Database["public"]["Enums"]["requester_type"] | null
+          sla_hours?: number | null
           status?: Database["public"]["Enums"]["job_status"]
           summary?: string
           title?: string
@@ -224,6 +272,56 @@ export type Database = {
         }
         Relationships: []
       }
+      revenue_events: {
+        Row: {
+          acquisition_source: string | null
+          created_at: string
+          engagement_tier: string
+          event_type: string
+          gross_amount_cents: number | null
+          id: string
+          job_id: string | null
+          notes: string | null
+          platform_fee_bps: number | null
+          platform_fee_cents: number | null
+          requester_type: string | null
+        }
+        Insert: {
+          acquisition_source?: string | null
+          created_at?: string
+          engagement_tier?: string
+          event_type: string
+          gross_amount_cents?: number | null
+          id?: string
+          job_id?: string | null
+          notes?: string | null
+          platform_fee_bps?: number | null
+          platform_fee_cents?: number | null
+          requester_type?: string | null
+        }
+        Update: {
+          acquisition_source?: string | null
+          created_at?: string
+          engagement_tier?: string
+          event_type?: string
+          gross_amount_cents?: number | null
+          id?: string
+          job_id?: string | null
+          notes?: string | null
+          platform_fee_bps?: number | null
+          platform_fee_cents?: number | null
+          requester_type?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "revenue_events_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reviews: {
         Row: {
           created_at: string
@@ -351,7 +449,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      budget_type: "hourly" | "flat" | "volunteer"
+      budget_type: "hourly" | "flat" | "volunteer" | "per_find" | "milestone"
       job_status: "open" | "claimed" | "submitted" | "completed" | "cancelled"
       job_type:
         | "renewal_review"
@@ -360,6 +458,12 @@ export type Database = {
         | "audit"
         | "program_design"
         | "other"
+        | "pre_broker_consult"
+        | "coverage_dispute"
+        | "ai_benchmark"
+        | "pricing_review"
+        | "risk_assessment"
+        | "portfolio_audit"
       notification_type:
         | "new_matching_job"
         | "claim_confirmed"
@@ -372,6 +476,17 @@ export type Database = {
         | "decline"
         | "quote_with_modifications"
         | "needs_more_info"
+      requester_type:
+        | "carrier"
+        | "mga"
+        | "reinsurer"
+        | "broker"
+        | "agent"
+        | "risk_manager"
+        | "insured_commercial"
+        | "insured_personal"
+        | "tech_ai"
+        | "other"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -499,7 +614,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      budget_type: ["hourly", "flat", "volunteer"],
+      budget_type: ["hourly", "flat", "volunteer", "per_find", "milestone"],
       job_status: ["open", "claimed", "submitted", "completed", "cancelled"],
       job_type: [
         "renewal_review",
@@ -508,6 +623,12 @@ export const Constants = {
         "audit",
         "program_design",
         "other",
+        "pre_broker_consult",
+        "coverage_dispute",
+        "ai_benchmark",
+        "pricing_review",
+        "risk_assessment",
+        "portfolio_audit",
       ],
       notification_type: [
         "new_matching_job",
@@ -522,6 +643,18 @@ export const Constants = {
         "decline",
         "quote_with_modifications",
         "needs_more_info",
+      ],
+      requester_type: [
+        "carrier",
+        "mga",
+        "reinsurer",
+        "broker",
+        "agent",
+        "risk_manager",
+        "insured_commercial",
+        "insured_personal",
+        "tech_ai",
+        "other",
       ],
     },
   },
