@@ -24,6 +24,7 @@
     "resend": "^4.0.1",
     "tailwind-merge": "^2.5.4",
     "tailwindcss-animate": "^1.0.7",
+    "gsap": "^3.12.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {
