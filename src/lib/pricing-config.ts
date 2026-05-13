@@ -143,9 +143,9 @@ export async function loadPricingConfig(): Promise<PricingConfig> {
   // Dynamic import so this file stays importable from client components too
   const { createClient } = await import("@/lib/supabase/server");
   const supabase = await createClient();
-  const { data } = await supabase
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .from("platform_config" as any)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data } = await (supabase as any)
+      .from("platform_config")
     .select("value")
     .eq("key", "pricing")
     .single();
