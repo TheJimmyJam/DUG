@@ -144,6 +144,7 @@ export async function loadPricingConfig(): Promise<PricingConfig> {
   const { createClient } = await import("@/lib/supabase/server");
   const supabase = await createClient();
   const { data } = await supabase
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .from("platform_config" as any)
     .select("value")
     .eq("key", "pricing")
