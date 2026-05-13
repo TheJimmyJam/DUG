@@ -482,7 +482,7 @@ export async function getPricingConfigAction(): Promise<PricingConfig | null> {
   await assertAdmin();
   const supabase = await createClient();
   const { data } = await supabase
-    .from("platform_config")
+    .from("platform_config" as any)
     .select("value")
     .eq("key", "pricing")
     .single();
@@ -497,7 +497,7 @@ export async function savePricingConfigAction(
     const supabase = await createClient();
     const user = await getCurrentUser();
     const { error } = await supabase
-      .from("platform_config")
+      .from("platform_config" as any)
       .upsert({ key: "pricing", value: config, updated_at: new Date().toISOString(), updated_by: user!.id });
     if (error) return { ok: false, error: error.message };
     revalidatePath("/dashboard/admin");

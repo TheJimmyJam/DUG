@@ -144,7 +144,7 @@ export async function loadPricingConfig(): Promise<PricingConfig> {
   const { createClient } = await import("@/lib/supabase/server");
   const supabase = await createClient();
   const { data } = await supabase
-    .from("platform_config")
+    .from("platform_config" as any)
     .select("value")
     .eq("key", "pricing")
     .single();
