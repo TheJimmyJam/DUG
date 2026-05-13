@@ -20,6 +20,7 @@ export type BoardProfile = {
   years_experience: number | null;
   rating: number | null;
   rating_count: number;
+  completed_job_count: number;
   is_verified: boolean;
   profile_specialties: { specialty_slug: string }[];
 };
