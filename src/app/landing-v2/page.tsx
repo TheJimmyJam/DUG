@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
@@ -55,23 +56,35 @@ function useGsapAnimations() {
           }
         );
 
-        // ── Effect 2: KPI cards fly in from the right ─────────────────────
-        // Background stays pinned; each card slides in from off-screen right
+        // ── Effect 2: KPI cards fly in from Digger's side (right → left) ──
+        // Section pins; Digger stands on the right as cards slide in past him
         const kpiTl = gsap.timeline({
           scrollTrigger: {
             trigger: "#kpiSection",
             start: "top top",
-            end: "+=1000",
+            end: "+=1100",
             pin: true,
             scrub: 1,
             anticipatePin: 1,
           },
         });
+        // Cards start off-screen right (from Digger's side) and land on the left
         kpiTl
-          .from("#kpi1", { x: 600, opacity: 0, duration: 1 }, 0)
-          .from("#kpi2", { x: 600, opacity: 0, duration: 1 }, 0.22)
-          .from("#kpi3", { x: 600, opacity: 0, duration: 1 }, 0.44)
-          .from("#kpi4", { x: 600, opacity: 0, duration: 1 }, 0.66);
+          .from("#kpi1", { x: 700, opacity: 0, duration: 1 }, 0)
+          .from("#kpi2", { x: 700, opacity: 0, duration: 1 }, 0.22)
+          .from("#kpi3", { x: 700, opacity: 0, duration: 1 }, 0.44)
+          .from("#kpi4", { x: 700, opacity: 0, duration: 1 }, 0.66);
+
+        // Digger himself does a subtle entrance — rises up slightly as section pins
+        gsap.from("#diggerImg", {
+          y: 40, opacity: 0, duration: 1.2, ease: "power2.out",
+          scrollTrigger: {
+            trigger: "#kpiSection",
+            start: "top 80%",
+            end: "top 20%",
+            scrub: 0.8,
+          },
+        });
 
         // ── Effect 3: Problem section slides up over the scale panel ──────
         // The problem section has a solid background that covers the pinned panel
@@ -207,23 +220,42 @@ export default function LandingV2() {
           </div>
         </div>
 
-        {/* ── 3. KPI CARDS FLY IN FROM RIGHT (GSAP Effect 2) ───────────── */}
-        {/* Stays pinned; each KPI card slides in from off-screen right      */}
+        {/* ── 3. DIGGER + KPI CARDS (GSAP Effect 2) ────────────────────── */}
+        {/* Light cream section — deliberate contrast break in the dark page  */}
+        {/* Digger stands on the right; KPI cards fly in from his side        */}
         <section id="kpiSection" className="v2-kpi-section">
-          <div className="v2-w" style={{ position: "relative", zIndex: 1 }}>
-            <p className="v2-eye v2-eye--g" style={{ marginBottom: "1rem" }}>
-              THE OPPORTUNITY
-            </p>
-            <p className="v2-kpi-label">The numbers that make the case.</p>
-            <div className="v2-kpi-grid">
-              {kpis.map((k) => (
-                <div key={k.id} id={k.id} className="v2-kpi-card">
-                  <div className="v2-kpi-num">{k.num}</div>
-                  <div className="v2-kpi-title">{k.label}</div>
-                  <p className="v2-kpi-body">{k.sub}</p>
-                </div>
-              ))}
+          <div className="v2-kpi-inner">
+
+            {/* Left column — KPI content */}
+            <div className="v2-kpi-left">
+              <p className="v2-eye v2-eye--amber" style={{ marginBottom: "1rem" }}>
+                THE OPPORTUNITY
+              </p>
+              <p className="v2-kpi-label">The numbers that make the case.</p>
+              <div className="v2-kpi-grid">
+                {kpis.map((k) => (
+                  <div key={k.id} id={k.id} className="v2-kpi-card">
+                    <div className="v2-kpi-num">{k.num}</div>
+                    <div className="v2-kpi-title">{k.label}</div>
+                    <p className="v2-kpi-body">{k.sub}</p>
+                  </div>
+                ))}
+              </div>
             </div>
+
+            {/* Right column — Digger, large, bottom-anchored */}
+            <div className="v2-kpi-right">
+              <Image
+                id="diggerImg"
+                src="/dug-mole.png"
+                alt="Digger — DUG mascot"
+                width={600}
+                height={750}
+                className="v2-digger-img"
+                priority
+              />
+            </div>
+
           </div>
         </section>
 
@@ -425,47 +457,74 @@ export default function LandingV2() {
           pointer-events: none; z-index: 3;
         }
 
-        /* ─── KPI section ─── */
+        /* ─── KPI / Digger section ─── */
+        /* Cream background — deliberate light contrast break in the dark page */
         .v2-kpi-section {
-          min-height: 100vh;
-          display: flex; align-items: center;
-          background: #0d0b08;
+          background: #faf7f2;
           padding: 0;
           position: relative;
           overflow: hidden;
+          color: #1c1410;
         }
-        /* Ambient background glow for the KPI section */
-        .v2-kpi-section::before {
-          content: ""; position: absolute; inset: 0; pointer-events: none;
-          background: radial-gradient(ellipse 60% 60% at 80% 50%, rgba(196,137,90,.07) 0%, transparent 65%);
+        .v2-kpi-inner {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          min-height: 100vh;
+          align-items: center;
+          max-width: 72rem;
+          margin: 0 auto;
+          padding: 0 2rem;
         }
+        @media (max-width: 768px) {
+          .v2-kpi-inner { grid-template-columns: 1fr; padding: 4rem 1.5rem; }
+        }
+        .v2-kpi-left { padding: 5rem 2rem 5rem 0; position: relative; z-index: 2; }
+        @media (max-width: 768px) { .v2-kpi-left { padding: 2rem 0; } }
+
+        /* Digger — right column, bottom-anchored, large */
+        .v2-kpi-right {
+          position: relative; height: 100vh;
+          display: flex; align-items: flex-end; justify-content: center;
+          overflow: visible;
+        }
+        @media (max-width: 768px) { .v2-kpi-right { height: 50vw; } }
+        .v2-digger-img {
+          height: 88vh; width: auto;
+          object-fit: contain; object-position: bottom center;
+          position: absolute; bottom: 0;
+          /* Subtle drop shadow so he pops off the cream bg */
+          filter: drop-shadow(0 8px 40px rgba(28,20,16,0.18));
+          will-change: transform, opacity;
+        }
+        @media (max-width: 768px) { .v2-digger-img { height: 50vw; position: relative; } }
+
+        /* eyebrow override for cream bg */
+        .v2-eye--amber { color: #7b4f28; opacity: 0.7; }
+
         .v2-kpi-label {
-          font-size: clamp(1.2rem, 2.5vw, 1.8rem); font-weight: 700;
-          letter-spacing: -.02em; margin-bottom: 3rem;
-          color: rgba(240,236,228,.7);
+          font-size: clamp(1.1rem, 2.5vw, 1.6rem); font-weight: 700;
+          letter-spacing: -.02em; margin-bottom: 2.5rem; color: #1c1410;
         }
-        .v2-kpi-grid {
-          display: flex; flex-direction: column; gap: 1rem;
-          max-width: 44rem;
-        }
+        .v2-kpi-grid { display: flex; flex-direction: column; gap: .9rem; }
         .v2-kpi-card {
           display: grid;
-          grid-template-columns: 7rem 1fr;
-          gap: .75rem 1.5rem;
+          grid-template-columns: 6rem 1fr;
+          gap: .5rem 1.25rem;
           align-items: start;
-          padding: 1.5rem 2rem;
-          border: 1px solid rgba(196,137,90,.25);
+          padding: 1.25rem 1.5rem;
+          border: 1px solid rgba(28,20,16,0.1);
           border-radius: 14px;
-          background: rgba(196,137,90,.04);
+          background: #ffffff;
+          box-shadow: 0 2px 12px rgba(28,20,16,0.06);
           will-change: transform, opacity;
         }
         .v2-kpi-num {
-          font-size: clamp(1.8rem, 4vw, 2.8rem); font-weight: 700;
-          letter-spacing: -.03em; color: #c4895a;
+          font-size: clamp(1.6rem, 3.5vw, 2.4rem); font-weight: 700;
+          letter-spacing: -.03em; color: #7b4f28;
           grid-row: span 2; display: flex; align-items: center;
         }
-        .v2-kpi-title { font-size: .88rem; font-weight: 700; line-height: 1.4; }
-        .v2-kpi-body { font-size: .8rem; color: rgba(240,236,228,.5); line-height: 1.55; }
+        .v2-kpi-title { font-size: .85rem; font-weight: 700; line-height: 1.4; color: #1c1410; }
+        .v2-kpi-body { font-size: .78rem; color: #7a6b5d; line-height: 1.55; }
 
         /* ─── Problem ─── */
         .v2-problem { background: #0d0b08; }
