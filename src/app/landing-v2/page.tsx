@@ -7,7 +7,7 @@ import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { ArrowRight } from "lucide-react";
 
-// ─── Intersection-based scroll reveals (no GSAP needed) ─────────────────────
+// ─── Intersection-based scroll reveals ──────────────────────────────────────
 function useScrollReveal() {
   useEffect(() => {
     const ro = new IntersectionObserver(
@@ -37,7 +37,6 @@ function useGsapAnimations() {
       ctx = gsap.context(() => {
 
         // ── Effect 1: Scale-up panel ──────────────────────────────────────
-        // The inner card starts small + rounded, scales to full-screen as you scroll
         gsap.fromTo(
           "#scalePanel",
           { scale: 0.42, borderRadius: "24px" },
@@ -56,8 +55,7 @@ function useGsapAnimations() {
           }
         );
 
-        // ── Effect 2: KPI cards fly in from Digger's side (right → left) ──
-        // Section pins; Digger stands on the right as cards slide in past him
+        // ── Effect 2: KPI cards fly from RIGHT (Digger's side) ───────────
         const kpiTl = gsap.timeline({
           scrollTrigger: {
             trigger: "#kpiSection",
@@ -68,14 +66,12 @@ function useGsapAnimations() {
             anticipatePin: 1,
           },
         });
-        // Cards start off-screen right (from Digger's side) and land on the left
         kpiTl
           .from("#kpi1", { x: 700, opacity: 0, duration: 1 }, 0)
           .from("#kpi2", { x: 700, opacity: 0, duration: 1 }, 0.22)
           .from("#kpi3", { x: 700, opacity: 0, duration: 1 }, 0.44)
           .from("#kpi4", { x: 700, opacity: 0, duration: 1 }, 0.66);
 
-        // Digger himself does a subtle entrance — rises up slightly as section pins
         gsap.from("#diggerImg", {
           y: 40, opacity: 0, duration: 1.2, ease: "power2.out",
           scrollTrigger: {
@@ -86,18 +82,149 @@ function useGsapAnimations() {
           },
         });
 
-        // ── Effect 3: Problem section slides up over the scale panel ──────
-        // The problem section has a solid background that covers the pinned panel
+        // ── Effect 3: Problem section slides up ───────────────────────────
         gsap.from("#problemSection", {
-          y: 60,
-          opacity: 0,
-          ease: "power2.out",
+          y: 60, opacity: 0, ease: "power2.out",
           scrollTrigger: {
             trigger: "#problemSection",
             start: "top 85%",
             end: "top 40%",
             scrub: 0.5,
           },
+        });
+
+        // ── Effect 4: Platform pillars fly from LEFT (pinned) ─────────────
+        // Opposite of KPI — creates a "ping pong" feel across sections
+        const platformTl = gsap.timeline({
+          scrollTrigger: {
+            trigger: "#platformSection",
+            start: "top top",
+            end: "+=1000",
+            pin: true,
+            scrub: 1,
+            anticipatePin: 1,
+          },
+        });
+        platformTl
+          .from("#platformEye", { y: -30, opacity: 0, duration: 0.3 }, 0)
+          .from("#platformH2",  { y: -20, opacity: 0, duration: 0.3 }, 0.08)
+          .from("#pc1", { x: -700, opacity: 0, duration: 1 }, 0.15)
+          .from("#pc2", { x: -700, opacity: 0, duration: 1 }, 0.38)
+          .from("#pc3", { x: -700, opacity: 0, duration: 1 }, 0.61);
+
+        // ── Effect 5: Who It's For — horizontal conveyor scroll ───────────
+        // The card track slides left as you scroll down — vertical → horizontal
+        const forTrack = document.querySelector<HTMLElement>("#forTrack");
+        if (forTrack) {
+          const trackWidth = forTrack.scrollWidth;
+          const viewW = window.innerWidth;
+          const travel = Math.max(0, trackWidth - viewW + 80);
+
+          gsap.to("#forTrack", {
+            x: -travel,
+            ease: "none",
+            scrollTrigger: {
+              trigger: "#forSection",
+              start: "top top",
+              end: `+=${travel + 400}`,
+              pin: true,
+              scrub: 1,
+              anticipatePin: 1,
+            },
+          });
+
+          // Header fades out as track scrolls away
+          gsap.to("#forHeader", {
+            opacity: 0, y: -30, ease: "none",
+            scrollTrigger: {
+              trigger: "#forSection",
+              start: "top top",
+              end: "+=300",
+              scrub: 1,
+            },
+          });
+        }
+
+        // ── Effect 6: Dojo — two-column pinch from opposite sides ────────
+        // Left text slab comes from left; feature cards come from right
+        gsap.from("#dojoLeft", {
+          x: -90, opacity: 0, duration: 1, ease: "power2.out",
+          scrollTrigger: {
+            trigger: "#dojoSection",
+            start: "top 75%",
+            end: "top 25%",
+            scrub: 0.8,
+          },
+        });
+        gsap.from("#dojoRight", {
+          x: 90, opacity: 0, duration: 1, ease: "power2.out",
+          scrollTrigger: {
+            trigger: "#dojoSection",
+            start: "top 75%",
+            end: "top 25%",
+            scrub: 0.8,
+          },
+        });
+        // Dojo glow orb expands as section enters
+        gsap.fromTo("#dojoGlow",
+          { scale: 0.3, opacity: 0 },
+          { scale: 1, opacity: 1, ease: "power2.out",
+            scrollTrigger: {
+              trigger: "#dojoSection",
+              start: "top 80%",
+              end: "top 20%",
+              scrub: 0.8,
+            },
+          }
+        );
+        // Individual dojo feature cards stagger in from right
+        gsap.utils.toArray<HTMLElement>(".v2-df").forEach((el, i) => {
+          gsap.from(el, {
+            x: 60, opacity: 0, duration: 0.7, ease: "power2.out",
+            scrollTrigger: {
+              trigger: "#dojoSection",
+              start: `top ${68 - i * 6}%`,
+              end: `top ${40 - i * 6}%`,
+              scrub: 0.5,
+            },
+          });
+        });
+
+        // ── Effect 7: CTA scale bloom ─────────────────────────────────────
+        // Box scales up from slightly small + radial glow behind it expands
+        gsap.fromTo("#ctaBox",
+          { scale: 0.85, opacity: 0 },
+          { scale: 1, opacity: 1, ease: "power2.out",
+            scrollTrigger: {
+              trigger: "#ctaSection",
+              start: "top 80%",
+              end: "top 30%",
+              scrub: 0.8,
+            },
+          }
+        );
+        gsap.fromTo("#ctaGlow",
+          { scale: 0.2, opacity: 0 },
+          { scale: 1, opacity: 1, ease: "power2.out",
+            scrollTrigger: {
+              trigger: "#ctaSection",
+              start: "top 85%",
+              end: "top 15%",
+              scrub: 0.8,
+            },
+          }
+        );
+        // CTA text elements stagger in
+        gsap.utils.toArray<HTMLElement>(".v2-cta-child").forEach((el, i) => {
+          gsap.from(el, {
+            y: 24, opacity: 0, duration: 0.7, ease: "power2.out",
+            scrollTrigger: {
+              trigger: "#ctaSection",
+              start: `top ${75 - i * 5}%`,
+              end: `top ${45 - i * 5}%`,
+              scrub: 0.5,
+            },
+          });
         });
 
       });
@@ -122,12 +249,13 @@ function WordReveal({ text, className = "", base = 0 }: { text: string; classNam
 }
 
 // ─── Slide-text button ───────────────────────────────────────────────────────
+// Double text trick: overflow:hidden clips the second copy until hover slides it up
 function SlideBtn({ children, href, gold = false }: { children: React.ReactNode; href: string; gold?: boolean }) {
   return (
     <Link href={href} className={`sb${gold ? " sb--gold" : ""}`}>
       <span className="sb__track">
         <span className="sb__txt">{children}</span>
-        <span className="sb__txt">{children}</span>
+        <span className="sb__txt" aria-hidden="true">{children}</span>
       </span>
     </Link>
   );
@@ -146,9 +274,9 @@ export default function LandingV2() {
   ] as const;
 
   const pillars = [
-    { tag: "Community", title: "Credibility you earn in public.", body: "Debate real risks, challenge peers, and build a reputation that travels with you. When someone with 200 Dojo completions and a 4.9 rating weighs in, it carries weight.", href: "/community", cta: "Explore discussions", gold: false },
-    { tag: "The Dojo",  title: "Reps before the paycheck.",    body: "Practice on curated risk scenarios, get scored, compete in timed contests. Your Dojo record feeds your public profile before you ever claim a paid engagement.", href: "/dojo",      cta: "Start training",    gold: true  },
-    { tag: "Marketplace", title: "Advisory work on your terms.", body: "Claim consulting assignments — second looks, audits, renewal reviews, complex risk analysis. Your reputation from community and Dojo follows you here.", href: "/engagements", cta: "Browse engagements", gold: false },
+    { id: "pc1", tag: "Community", title: "Credibility you earn in public.", body: "Debate real risks, challenge peers, and build a reputation that travels with you. When someone with 200 Dojo completions and a 4.9 rating weighs in, it carries weight.", href: "/community", cta: "Explore discussions", gold: false },
+    { id: "pc2", tag: "The Dojo",  title: "Reps before the paycheck.",    body: "Practice on curated risk scenarios, get scored, compete in timed contests. Your Dojo record feeds your public profile before you ever claim a paid engagement.", href: "/dojo",      cta: "Start training",    gold: true  },
+    { id: "pc3", tag: "Marketplace", title: "Advisory work on your terms.", body: "Claim consulting assignments — second looks, audits, renewal reviews, complex risk analysis. Your reputation from community and Dojo follows you here.", href: "/engagements", cta: "Browse engagements", gold: false },
   ] as const;
 
   const audience = [
@@ -196,13 +324,10 @@ export default function LandingV2() {
         </section>
 
         {/* ── 2. SCALE-UP PANEL (GSAP Effect 1) ────────────────────────── */}
-        {/* Outer wrapper: tall so GSAP has scroll distance to work with    */}
-        {/* Inner panel: starts small + rounded, scales to full-screen      */}
+        {/* Height = 100vh (panel) + 900px (scroll distance for animation)  */}
         <div id="scaleWrap" className="v2-scale-wrap">
           <div id="scalePanel" className="v2-scale-panel">
-            {/* Ambient grid overlay */}
             <div className="v2-scale-grid" aria-hidden="true" />
-            {/* Content centered inside the panel */}
             <div className="v2-scale-content">
               <p className="v2-eye v2-eye--g" style={{ marginBottom: "1.5rem" }}>
                 THE UNDERWRITING MARKET
@@ -215,18 +340,13 @@ export default function LandingV2() {
                 DUG is the infrastructure the independent underwriting market has been missing.
               </p>
             </div>
-            {/* Decorative bottom fade */}
             <div className="v2-scale-fade" aria-hidden="true" />
           </div>
         </div>
 
         {/* ── 3. DIGGER + KPI CARDS (GSAP Effect 2) ────────────────────── */}
-        {/* Light cream section — deliberate contrast break in the dark page  */}
-        {/* Digger stands on the right; KPI cards fly in from his side        */}
         <section id="kpiSection" className="v2-kpi-section">
           <div className="v2-kpi-inner">
-
-            {/* Left column — KPI content */}
             <div className="v2-kpi-left">
               <p className="v2-eye v2-eye--amber" style={{ marginBottom: "1rem" }}>
                 THE OPPORTUNITY
@@ -242,8 +362,6 @@ export default function LandingV2() {
                 ))}
               </div>
             </div>
-
-            {/* Right column — Digger, large, bottom-anchored */}
             <div className="v2-kpi-right">
               <Image
                 id="diggerImg"
@@ -255,11 +373,10 @@ export default function LandingV2() {
                 priority
               />
             </div>
-
           </div>
         </section>
 
-        {/* ── 4. PROBLEM ESCALATION (slides up over scale panel) ───────── */}
+        {/* ── 4. PROBLEM ESCALATION ─────────────────────────────────────── */}
         <section id="problemSection" className="v2-s v2-problem">
           <div className="v2-w">
             <p className="v2-eye" data-rev>THE UNDERWRITING TALENT GAP</p>
@@ -287,14 +404,14 @@ export default function LandingV2() {
           </div>
         </section>
 
-        {/* ── 5. PLATFORM ───────────────────────────────────────────────── */}
-        <section className="v2-s v2-platform">
+        {/* ── 5. PLATFORM — pinned, cards fly from LEFT (GSAP Effect 4) ── */}
+        <section id="platformSection" className="v2-s v2-platform">
           <div className="v2-w">
-            <p className="v2-eye" data-rev>INFRASTRUCTURE FOR INDEPENDENT UNDERWRITING</p>
-            <h2 className="v2-sh2" data-rev style={{ "--d": "0.1s" } as React.CSSProperties}>The DUG Platform</h2>
+            <p id="platformEye" className="v2-eye">INFRASTRUCTURE FOR INDEPENDENT UNDERWRITING</p>
+            <h2 id="platformH2" className="v2-sh2">The DUG Platform</h2>
             <div className="v2-pgrid">
-              {pillars.map((p, i) => (
-                <div key={p.tag} className={`v2-pc${p.gold ? " v2-pc--g" : ""}`} data-rev style={{ "--d": `${i * 0.1}s` } as React.CSSProperties}>
+              {pillars.map((p) => (
+                <div key={p.id} id={p.id} className={`v2-pc${p.gold ? " v2-pc--g" : ""}`}>
                   <p className="v2-pc__tag">{p.tag}</p>
                   <h3 className="v2-pc__h3">{p.title}</h3>
                   <p className="v2-pc__body">{p.body}</p>
@@ -305,16 +422,20 @@ export default function LandingV2() {
           </div>
         </section>
 
-        {/* ── 6. WHO IT'S FOR ───────────────────────────────────────────── */}
-        <section className="v2-s v2-for">
-          <div className="v2-w">
-            <p className="v2-eye" data-rev>BUILT FOR</p>
-            <h2 className="v2-sh2" data-rev style={{ "--d": "0.1s" } as React.CSSProperties}>
-              One network.<br />Every underwriter.
-            </h2>
-            <div className="v2-fgrid">
+        {/* ── 6. WHO IT'S FOR — horizontal conveyor (GSAP Effect 5) ─────── */}
+        <section id="forSection" className="v2-for">
+          <div id="forHeader" className="v2-for-header">
+            <div className="v2-w">
+              <p className="v2-eye">BUILT FOR</p>
+              <h2 className="v2-sh2">One network.<br />Every underwriter.</h2>
+              <p className="v2-for-hint">scroll to explore →</p>
+            </div>
+          </div>
+          <div className="v2-for-track-wrap">
+            <div id="forTrack" className="v2-for-track">
               {audience.map(([title, body], i) => (
-                <div key={title as string} className="v2-fc" data-rev style={{ "--d": `${i * 0.07}s` } as React.CSSProperties}>
+                <div key={title as string} className="v2-fc" style={{ "--fi": i } as React.CSSProperties}>
+                  <p className="v2-fc__num">0{i + 1}</p>
                   <p className="v2-fc__title">{title}</p>
                   <p className="v2-fc__body">{body}</p>
                 </div>
@@ -323,20 +444,22 @@ export default function LandingV2() {
           </div>
         </section>
 
-        {/* ── 7. DOJO SPOTLIGHT ─────────────────────────────────────────── */}
-        <section className="v2-s v2-dojo">
+        {/* ── 7. DOJO SPOTLIGHT — pinch from both sides (GSAP Effect 6) ── */}
+        <section id="dojoSection" className="v2-s v2-dojo">
+          {/* Ambient glow orb — GSAP scales it in */}
+          <div id="dojoGlow" className="v2-dojo-glow" aria-hidden="true" />
           <div className="v2-w">
             <div className="v2-dojo-in">
-              <div data-rev>
+              <div id="dojoLeft">
                 <p className="v2-eye v2-eye--g">THE DOJO</p>
                 <h2 className="v2-dojo-h">The path from insider<br />to underwriter.</h2>
                 <p className="v2-dojo-p">An Uber driver isn&apos;t a professional driver — but they can become one. The Dojo is the vessel. Claims adjusters, premium auditors, subject matter experts, and career changers get structured reps on real risk scenarios instead of waiting for a carrier to sweep them up and train them.</p>
                 <p className="v2-dojo-p v2-mt">Practice submissions are scored. Contests rank participants in real time. Your Dojo record feeds your public profile — before you ever claim a paid engagement.</p>
                 <div className="v2-mt2"><SlideBtn href="/dojo" gold>Enter the Dojo</SlideBtn></div>
               </div>
-              <div className="v2-dojo-feats">
-                {dojoFeatures.map(([t, b], i) => (
-                  <div key={t as string} className="v2-df" data-rev style={{ "--d": `${i * 0.08}s` } as React.CSSProperties}>
+              <div id="dojoRight" className="v2-dojo-feats">
+                {dojoFeatures.map(([t, b]) => (
+                  <div key={t as string} className="v2-df">
                     <p className="v2-df__t">{t}</p>
                     <p className="v2-df__b">{b}</p>
                   </div>
@@ -346,14 +469,16 @@ export default function LandingV2() {
           </div>
         </section>
 
-        {/* ── 8. FINAL CTA ──────────────────────────────────────────────── */}
-        <section className="v2-s v2-cta-s">
+        {/* ── 8. FINAL CTA — bloom scale (GSAP Effect 7) ────────────────── */}
+        <section id="ctaSection" className="v2-s v2-cta-s">
+          {/* Background glow that blooms in behind the box */}
+          <div id="ctaGlow" className="v2-cta-glow" aria-hidden="true" />
           <div className="v2-w">
-            <div className="v2-cta-box" data-rev>
-              <p className="v2-eye v2-eye--g">READY TO BUILD YOUR REPUTATION?</p>
-              <h2 className="v2-cta-h">Your expertise is already here.<br />The reps aren&apos;t.</h2>
-              <p className="v2-cta-p">Join the community. Hit the Dojo. Take an engagement when you&apos;re ready. Your profile builds the whole time.</p>
-              <div className="v2-cta-btns">
+            <div id="ctaBox" className="v2-cta-box">
+              <p className="v2-eye v2-eye--g v2-cta-child">READY TO BUILD YOUR REPUTATION?</p>
+              <h2 className="v2-cta-h v2-cta-child">Your expertise is already here.<br />The reps aren&apos;t.</h2>
+              <p className="v2-cta-p v2-cta-child">Join the community. Hit the Dojo. Take an engagement when you&apos;re ready. Your profile builds the whole time.</p>
+              <div className="v2-cta-btns v2-cta-child">
                 <SlideBtn href="/signup" gold>Create your profile</SlideBtn>
                 <SlideBtn href="/dojo">Explore the Dojo</SlideBtn>
               </div>
@@ -386,11 +511,12 @@ export default function LandingV2() {
         @keyframes wFade { from{opacity:0;filter:blur(4px);} to{opacity:1;filter:blur(0);} }
 
         /* ─── Slide button ─── */
+        /* overflow:hidden on both .sb AND .sb__track ensures only 1 line is visible */
         .sb { display:inline-flex; align-items:center; overflow:hidden; border-radius:9999px; padding:.72rem 1.6rem; font-size:.78rem; font-weight:700; letter-spacing:.07em; text-transform:uppercase; text-decoration:none; border:1px solid rgba(240,236,228,.2); color:rgba(240,236,228,.8); transition:border-color .2s; }
         .sb:hover { border-color:rgba(240,236,228,.45); }
         .sb--gold { background:#c4895a; color:#1a1410; border-color:transparent; }
         .sb--gold:hover { background:#d4a574; border-color:transparent; }
-        .sb__track { display:flex; flex-direction:column; height:1em; line-height:1em; transition:transform .28s cubic-bezier(.4,0,.2,1); }
+        .sb__track { display:flex; flex-direction:column; height:1em; line-height:1em; overflow:hidden; transition:transform .28s cubic-bezier(.4,0,.2,1); }
         .sb:hover .sb__track { transform:translateY(-1em); }
         .sb__txt { display:block; height:1em; white-space:nowrap; }
 
@@ -407,30 +533,20 @@ export default function LandingV2() {
         .v2-a:hover { color:rgba(240,236,228,.8); }
 
         /* ─── Scale-up panel ─── */
-        /* The wrap is tall so GSAP has scroll distance. The panel is position:absolute  */
-        /* inside a sticky container so it stays centered while you scroll.              */
+        /* Reduced from 250vh to just enough: 100vh panel + 900px animation travel */
         .v2-scale-wrap {
           position: relative;
-          height: 250vh; /* scroll distance for the scale animation */
+          height: calc(100vh + 900px);
           background: #0d0b08;
         }
         .v2-scale-panel {
-          /* GSAP will pin this via ScrollTrigger pin on the outer wrapper.       */
-          /* Starts at scale(0.42) — appears as a card. Grows to scale(1) = full. */
-          width: 100vw;
-          height: 100vh;
-          background: #0d0b08;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          position: relative;
-          overflow: hidden;
-          /* Subtle warm radial gradient so it reads as a distinct "scene" */
+          width: 100vw; height: 100vh;
+          display: flex; align-items: center; justify-content: center;
+          position: relative; overflow: hidden;
           background: radial-gradient(ellipse 90% 80% at 50% 50%, #1a1208 0%, #0d0b08 70%);
           transform-origin: center center;
           will-change: transform, border-radius;
         }
-        /* Subtle grid lines — give the panel a "data/tech" feel */
         .v2-scale-grid {
           position: absolute; inset: 0; pointer-events: none;
           background-image:
@@ -450,7 +566,6 @@ export default function LandingV2() {
           font-size: clamp(.9rem, 1.5vw, 1.1rem);
           color: rgba(240,236,228,.55); line-height: 1.65;
         }
-        /* Bottom fade so it blends into next section */
         .v2-scale-fade {
           position: absolute; bottom: 0; left: 0; right: 0; height: 30vh;
           background: linear-gradient(to bottom, transparent, #0d0b08);
@@ -458,71 +573,27 @@ export default function LandingV2() {
         }
 
         /* ─── KPI / Digger section ─── */
-        /* Cream background — deliberate light contrast break in the dark page */
         .v2-kpi-section {
-          background: #faf7f2;
-          padding: 0;
-          position: relative;
-          overflow: hidden;
-          color: #1c1410;
+          background: #faf7f2; padding: 0;
+          position: relative; overflow: hidden; color: #1c1410;
         }
         .v2-kpi-inner {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          min-height: 100vh;
-          align-items: center;
-          max-width: 72rem;
-          margin: 0 auto;
-          padding: 0 2rem;
+          display: grid; grid-template-columns: 1fr 1fr;
+          min-height: 100vh; align-items: center;
+          max-width: 72rem; margin: 0 auto; padding: 0 2rem;
         }
-        @media (max-width: 768px) {
-          .v2-kpi-inner { grid-template-columns: 1fr; padding: 4rem 1.5rem; }
-        }
+        @media (max-width: 768px) { .v2-kpi-inner { grid-template-columns: 1fr; padding: 4rem 1.5rem; } }
         .v2-kpi-left { padding: 5rem 2rem 5rem 0; position: relative; z-index: 2; }
         @media (max-width: 768px) { .v2-kpi-left { padding: 2rem 0; } }
-
-        /* Digger — right column, bottom-anchored, large */
-        .v2-kpi-right {
-          position: relative; height: 100vh;
-          display: flex; align-items: flex-end; justify-content: center;
-          overflow: visible;
-        }
+        .v2-kpi-right { position: relative; height: 100vh; display: flex; align-items: flex-end; justify-content: center; overflow: visible; }
         @media (max-width: 768px) { .v2-kpi-right { height: 50vw; } }
-        .v2-digger-img {
-          height: 88vh; width: auto;
-          object-fit: contain; object-position: bottom center;
-          position: absolute; bottom: 0;
-          /* Subtle drop shadow so he pops off the cream bg */
-          filter: drop-shadow(0 8px 40px rgba(28,20,16,0.18));
-          will-change: transform, opacity;
-        }
+        .v2-digger-img { height: 88vh; width: auto; object-fit: contain; object-position: bottom center; position: absolute; bottom: 0; filter: drop-shadow(0 8px 40px rgba(28,20,16,0.18)); will-change: transform, opacity; }
         @media (max-width: 768px) { .v2-digger-img { height: 50vw; position: relative; } }
-
-        /* eyebrow override for cream bg */
         .v2-eye--amber { color: #7b4f28; opacity: 0.7; }
-
-        .v2-kpi-label {
-          font-size: clamp(1.1rem, 2.5vw, 1.6rem); font-weight: 700;
-          letter-spacing: -.02em; margin-bottom: 2.5rem; color: #1c1410;
-        }
+        .v2-kpi-label { font-size: clamp(1.1rem, 2.5vw, 1.6rem); font-weight: 700; letter-spacing: -.02em; margin-bottom: 2.5rem; color: #1c1410; }
         .v2-kpi-grid { display: flex; flex-direction: column; gap: .9rem; }
-        .v2-kpi-card {
-          display: grid;
-          grid-template-columns: 6rem 1fr;
-          gap: .5rem 1.25rem;
-          align-items: start;
-          padding: 1.25rem 1.5rem;
-          border: 1px solid rgba(28,20,16,0.1);
-          border-radius: 14px;
-          background: #ffffff;
-          box-shadow: 0 2px 12px rgba(28,20,16,0.06);
-          will-change: transform, opacity;
-        }
-        .v2-kpi-num {
-          font-size: clamp(1.6rem, 3.5vw, 2.4rem); font-weight: 700;
-          letter-spacing: -.03em; color: #7b4f28;
-          grid-row: span 2; display: flex; align-items: center;
-        }
+        .v2-kpi-card { display: grid; grid-template-columns: 6rem 1fr; gap: .5rem 1.25rem; align-items: start; padding: 1.25rem 1.5rem; border: 1px solid rgba(28,20,16,0.1); border-radius: 14px; background: #ffffff; box-shadow: 0 2px 12px rgba(28,20,16,0.06); will-change: transform, opacity; }
+        .v2-kpi-num { font-size: clamp(1.6rem, 3.5vw, 2.4rem); font-weight: 700; letter-spacing: -.03em; color: #7b4f28; grid-row: span 2; display: flex; align-items: center; }
         .v2-kpi-title { font-size: .85rem; font-weight: 700; line-height: 1.4; color: #1c1410; }
         .v2-kpi-body { font-size: .78rem; color: #7a6b5d; line-height: 1.55; }
 
@@ -538,7 +609,8 @@ export default function LandingV2() {
         .v2-contrast__a { font-size:clamp(1.1rem,3vw,2rem); font-weight:700; letter-spacing:-.02em; color:rgba(240,236,228,.38); line-height:1.3; margin-bottom:.2rem; }
         .v2-contrast__b { font-size:clamp(1.1rem,3vw,2rem); font-weight:700; letter-spacing:-.02em; color:#f0ece4; line-height:1.3; }
 
-        /* ─── Platform ─── */
+        /* ─── Platform (pinned, cards from left) ─── */
+        .v2-platform { background: #0d0b08; overflow: hidden; }
         .v2-sh2 { font-size:clamp(1.8rem,4vw,3rem); font-weight:700; letter-spacing:-.025em; line-height:1.2; margin-bottom:2.5rem; }
         .v2-pgrid { display:grid; gap:1.25rem; grid-template-columns:1fr; }
         @media(min-width:768px){.v2-pgrid{grid-template-columns:repeat(3,1fr);}}
@@ -553,30 +625,91 @@ export default function LandingV2() {
         .v2-pc__link:hover { gap:.6rem; }
         .v2-pc__icon { width:.82rem; height:.82rem; }
 
-        /* ─── For ─── */
-        .v2-fgrid { display:grid; gap:1rem; margin-top:2.5rem; grid-template-columns:1fr; }
-        @media(min-width:640px){.v2-fgrid{grid-template-columns:repeat(2,1fr);}}
-        @media(min-width:1024px){.v2-fgrid{grid-template-columns:repeat(3,1fr);}}
-        .v2-fc { padding:1.5rem; border-radius:12px; border:1px solid rgba(240,236,228,.08); background:rgba(240,236,228,.02); transition:border-color .2s,background .2s; }
+        /* ─── Who It's For (horizontal conveyor) ─── */
+        .v2-for {
+          background: #0d0b08;
+          overflow: hidden;
+          border-bottom: 1px solid rgba(240,236,228,0.07);
+        }
+        .v2-for-header {
+          padding: 5rem 0 2rem;
+          position: relative; z-index: 2;
+        }
+        .v2-for-hint {
+          font-size: .72rem; font-weight: 600; letter-spacing: .1em;
+          text-transform: uppercase; color: rgba(240,236,228,.25);
+          margin-top: .5rem;
+        }
+        .v2-for-track-wrap {
+          position: relative;
+          padding-bottom: 4rem;
+        }
+        .v2-for-track {
+          display: flex; gap: 1.5rem;
+          padding: 0 2rem;
+          width: max-content;
+          will-change: transform;
+        }
+        .v2-fc {
+          width: 300px; flex-shrink: 0;
+          padding: 2rem 1.75rem;
+          border-radius: 16px;
+          border: 1px solid rgba(240,236,228,.08);
+          background: rgba(240,236,228,.02);
+          transition: border-color .2s, background .2s;
+          position: relative; overflow: hidden;
+        }
+        .v2-fc::before {
+          content: "";
+          position: absolute; top: 0; left: 0; right: 0; height: 2px;
+          background: linear-gradient(90deg, rgba(196,137,90,0), rgba(196,137,90, calc(0.15 + var(--fi, 0) * 0.06)), rgba(196,137,90,0));
+        }
         .v2-fc:hover { border-color:rgba(240,236,228,.18); background:rgba(240,236,228,.04); }
-        .v2-fc__title { font-size:.9rem; font-weight:700; margin-bottom:.4rem; }
+        .v2-fc__num { font-size: 2.5rem; font-weight: 800; letter-spacing: -.04em; color: rgba(196,137,90,.18); margin-bottom: .75rem; line-height: 1; }
+        .v2-fc__title { font-size:.95rem; font-weight:700; margin-bottom:.5rem; }
         .v2-fc__body { font-size:.82rem; color:rgba(240,236,228,.52); line-height:1.65; }
 
-        /* ─── Dojo ─── */
-        .v2-dojo-in { display:grid; gap:4rem; grid-template-columns:1fr; }
+        /* ─── Dojo (pinch from opposite sides + glow orb) ─── */
+        .v2-dojo {
+          background: #100d09;
+          position: relative; overflow: hidden;
+        }
+        /* Ambient amber orb behind everything — GSAP scales it in */
+        .v2-dojo-glow {
+          position: absolute;
+          top: 50%; left: 50%;
+          transform: translate(-50%, -50%);
+          width: 60vw; height: 60vw;
+          border-radius: 50%;
+          background: radial-gradient(circle, rgba(196,137,90,.07) 0%, transparent 70%);
+          pointer-events: none;
+          will-change: transform, opacity;
+        }
+        .v2-dojo-in { display:grid; gap:4rem; grid-template-columns:1fr; position: relative; z-index: 2; }
         @media(min-width:1024px){.v2-dojo-in{grid-template-columns:1fr 1fr;align-items:start;}}
         .v2-dojo-h { font-size:clamp(1.8rem,4vw,3rem); font-weight:700; letter-spacing:-.025em; line-height:1.2; margin-bottom:1.25rem; }
         .v2-dojo-p { font-size:.92rem; color:rgba(240,236,228,.58); line-height:1.72; }
         .v2-mt { margin-top:.9rem; }
         .v2-mt2 { margin-top:2rem; }
-        .v2-dojo-feats { display:grid; gap:1rem; grid-template-columns:1fr 1fr; }
+        .v2-dojo-feats { display:grid; gap:1rem; grid-template-columns:1fr 1fr; align-content: start; }
         .v2-df { padding:1.25rem; border-radius:12px; border:1px solid rgba(196,137,90,.18); background:rgba(196,137,90,.04); }
         .v2-df__t { font-size:.85rem; font-weight:700; margin-bottom:.35rem; color:#d4a574; }
         .v2-df__b { font-size:.78rem; color:rgba(240,236,228,.52); line-height:1.6; }
 
-        /* ─── CTA ─── */
-        .v2-cta-s { padding-bottom:8rem; }
-        .v2-cta-box { border:1px solid rgba(240,236,228,.1); border-radius:20px; background:rgba(240,236,228,.025); padding:4rem 3rem; text-align:center; }
+        /* ─── CTA (bloom scale) ─── */
+        .v2-cta-s { padding-bottom:8rem; position: relative; overflow: hidden; }
+        /* Radial glow bloom that expands behind the box */
+        .v2-cta-glow {
+          position: absolute;
+          top: 50%; left: 50%;
+          transform: translate(-50%, -50%);
+          width: 80vw; height: 80vw; max-width: 900px; max-height: 900px;
+          border-radius: 50%;
+          background: radial-gradient(circle, rgba(196,137,90,.06) 0%, transparent 65%);
+          pointer-events: none;
+          will-change: transform, opacity;
+        }
+        .v2-cta-box { border:1px solid rgba(240,236,228,.1); border-radius:20px; background:rgba(240,236,228,.025); padding:4rem 3rem; text-align:center; position: relative; z-index: 2; will-change: transform, opacity; }
         @media(max-width:640px){.v2-cta-box{padding:2.5rem 1.5rem;}}
         .v2-cta-h { font-size:clamp(1.8rem,4vw,3rem); font-weight:700; letter-spacing:-.025em; line-height:1.2; margin:.75rem 0 1rem; }
         .v2-cta-p { font-size:.95rem; color:rgba(240,236,228,.52); max-width:34rem; margin:0 auto 2.25rem; line-height:1.65; }
