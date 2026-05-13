@@ -19,9 +19,9 @@ export const config = {
      * network round-trip on every navigation.
      */
     "/dashboard/:path*",
-    "/post-job/:path*",
-    "/jobs/:id/submit/:path*",
-    "/jobs/:id/review/:path*",
+    "/post-engagement/:path*",
+    "/engagements/:id/submit/:path*",
+    "/engagements/:id/review/:path*",
     "/auth/:path*",
   ],
 };

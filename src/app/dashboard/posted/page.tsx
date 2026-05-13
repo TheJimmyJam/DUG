@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardTitle } from "@/components/ui/c
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 
-export const metadata = { title: "Jobs I posted" };
+export const metadata = { title: "Engagements I posted" };
 
 export default async function PostedJobsPage() {
   const user = await getCurrentUser();
@@ -21,14 +21,14 @@ export default async function PostedJobsPage() {
       <div className="flex items-end justify-between gap-3">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">
-            Jobs I posted
+            Engagements I posted
           </h1>
           <p className="mt-1 text-[var(--color-muted)]">
             Track who&apos;s working on what.
           </p>
         </div>
-        <Link href="/post-job">
-          <Button variant="accent">Post a job</Button>
+        <Link href="/post-engagement">
+          <Button variant="accent">Post an engagement</Button>
         </Link>
       </div>
 
@@ -38,7 +38,7 @@ export default async function PostedJobsPage() {
             <CardContent className="pt-6 pb-6">
               <CardTitle>You haven&apos;t posted anything yet.</CardTitle>
               <CardDescription className="mt-2">
-                Post a job to get expert eyes on a risk you&apos;re wrestling
+                Post an engagement to get expert eyes on a risk you&apos;re wrestling
                 with.
               </CardDescription>
             </CardContent>

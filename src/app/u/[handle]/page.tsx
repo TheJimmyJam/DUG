@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/server";
 import { SPECIALTIES_BY_SLUG } from "@/lib/specialties";
 import { formatRelativeTime } from "@/lib/utils";
+import { computeReputationIndex, RI_TIER_COLORS } from "@/lib/reputation";
 import { Star, MapPin, CheckCircle, Briefcase } from "lucide-react";
 
 type PageProps = { params: Promise<{ handle: string }> };
@@ -80,33 +81,58 @@ export default async function PublicProfilePage({ params }: PageProps) {
                   </div>
                 )}
 
-                <div className="mt-5 grid grid-cols-3 gap-2 text-center">
-                  <div>
-                    <div className="flex items-center justify-center gap-1 text-lg font-semibold">
-                      <Star className="h-4 w-4 text-[var(--color-accent)]" />
-                      {profile.rating ? Number(profile.rating).toFixed(2) : "—"}
+                {/* Reputation Index */}
+                {(() => {
+                  const ri = computeReputationIndex(profile);
+                  return (
+                    <div className="mt-5">
+                      <div className="rounded-lg border bg-[var(--color-bg)] px-4 py-3 text-center">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+                          Reputation Index
+                        </div>
+                        <div className="mt-1 flex items-baseline justify-center gap-2">
+                          <span className="text-3xl font-bold text-[var(--color-fg)]">
+                            {ri.hasSignal ? ri.score : "—"}
+                          </span>
+                          {ri.hasSignal && (
+                            <span className={`text-sm font-semibold ${RI_TIER_COLORS[ri.tier]}`}>
+                              {ri.tier}
+                            </span>
+                          )}
+                        </div>
+                        {ri.hasSignal && (
+                          <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-left text-xs text-[var(--color-muted)]">
+                            <span>Peer reviews <span className="float-right font-medium text-[var(--color-fg)]">{ri.components.peerScore}/50</span></span>
+                            <span>Volume <span className="float-right font-medium text-[var(--color-fg)]">{ri.components.volume}/20</span></span>
+                            <span>Verified <span className="float-right font-medium text-[var(--color-fg)]">{ri.components.verification}/15</span></span>
+                            <span>Tenure <span className="float-right font-medium text-[var(--color-fg)]">{ri.components.tenure}/15</span></span>
+                          </div>
+                        )}
+                        {!ri.hasSignal && (
+                          <div className="mt-1 text-xs text-[var(--color-muted)]">
+                            Score builds with completed engagements
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Secondary stats */}
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-center">
+                        <div>
+                          <div className="text-base font-semibold">
+                            {profile.completed_job_count}
+                          </div>
+                          <div className="text-xs text-[var(--color-muted)]">engagements</div>
+                        </div>
+                        <div>
+                          <div className="text-base font-semibold">
+                            {profile.years_experience ?? "—"}
+                          </div>
+                          <div className="text-xs text-[var(--color-muted)]">yrs P&C</div>
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-xs text-[var(--color-muted)]">
-                      {profile.rating_count} reviews
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-lg font-semibold">
-                      {profile.completed_job_count}
-                    </div>
-                    <div className="text-xs text-[var(--color-muted)]">
-                      jobs done
-                    </div>
-                  </div>
-                  <div>
-                    <div className="text-lg font-semibold">
-                      {profile.years_experience ?? "—"}
-                    </div>
-                    <div className="text-xs text-[var(--color-muted)]">
-                      yrs P&C
-                    </div>
-                  </div>
-                </div>
+                  );
+                })()}
 
                 {(profile.location_city || profile.location_state) && (
                   <div className="mt-5 flex items-center justify-center gap-1 text-sm text-[var(--color-muted)]">
@@ -131,7 +157,7 @@ export default async function PublicProfilePage({ params }: PageProps) {
                       return (
                         <Link
                           key={s.specialty_slug}
-                          href={`/jobs?specialty=${s.specialty_slug}`}
+                          href={`/engagements?specialty=${s.specialty_slug}`}
                         >
                           <Badge variant="primary">
                             {meta?.label ?? s.specialty_slug}
@@ -191,7 +217,7 @@ export default async function PublicProfilePage({ params }: PageProps) {
                         </div>
                         {r.job && (
                           <Link
-                            href={`/jobs/${r.job.id}`}
+                            href={`/engagements/${r.job.id}`}
                             className="mt-1 block text-sm font-medium hover:text-[var(--color-primary)] hover:underline"
                           >
                             {r.job.title}
@@ -218,7 +244,7 @@ export default async function PublicProfilePage({ params }: PageProps) {
               ) : (
                 <div className="mt-3 grid gap-2">
                   {completedJobs!.map((j) => (
-                    <Link key={j.id} href={`/jobs/${j.id}`}>
+                    <Link key={j.id} href={`/engagements/${j.id}`}>
                       <Card className="transition-shadow hover:shadow-md">
                         <CardContent className="pt-4 pb-4">
                           <div className="flex items-center gap-2 text-xs text-[var(--color-muted)]">

@@ -12,7 +12,7 @@ const buttonVariants = cva(
         accent:
           "bg-[var(--color-accent)] text-[var(--color-accent-fg)] hover:bg-[var(--color-accent)]/90 shadow-sm",
         secondary:
-          "bg-white text-[var(--color-fg)] border border-[var(--color-border)] hover:bg-[var(--color-bg)]",
+          "bg-white text-black border border-[var(--color-border)] hover:bg-[var(--color-bg)]",
         ghost: "hover:bg-[var(--color-border)]/50 text-[var(--color-fg)]",
         link: "text-[var(--color-primary)] underline-offset-4 hover:underline",
         destructive:

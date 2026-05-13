@@ -80,8 +80,8 @@ export default async function DashboardPage() {
             <Link href="/dashboard/profile">
               <Button variant="primary">Edit profile</Button>
             </Link>
-            <Link href="/jobs">
-              <Button variant="secondary">Browse jobs</Button>
+            <Link href="/engagements">
+              <Button variant="secondary">Browse engagements</Button>
             </Link>
           </div>
         </CardContent>

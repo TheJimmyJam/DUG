@@ -6,43 +6,42 @@
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
 
-  /* DUG palette — light defaults. Dark overrides live in @layer base below. */
-  --color-bg: #fafaf7;
-  --color-fg: #0f1419;
-  --color-muted: #6b7280;
-  --color-border: #e5e7eb;
+  /* DUG palette — earth tones. Light defaults. Dark overrides live in @layer base below. */
+  --color-bg: #faf7f2;
+  --color-fg: #1c1410;
+  --color-muted: #7a6b5d;
+  --color-border: #e2d9cc;
   --color-card: #ffffff;
-  --color-primary: #0D1F3D;
+  --color-primary: #3b6e47;
   --color-primary-fg: #ffffff;
-  --color-accent: #1E88E5;
+  --color-accent: #7b4f28;
   --color-accent-fg: #ffffff;
-  --color-success: #15803d;
-  --color-warning: #b45309;
+  --color-success: #2d6a4f;
+  --color-warning: #92400e;
   --color-danger: #b91c1c;
-  /* Brand mark — overridden in dark mode so the logo stays legible */
-  --brand-mark-navy: #0D1F3D;
-  --brand-mark-accent: #1E88E5;
+  /* Brand mark — overridden in dark mode so the mole stays legible */
+  --brand-mark-navy: #3d2b1f;
+  --brand-mark-accent: #c4895a;
 }
 
 @layer base {
   /* ---------- Dark theme ---------- */
   [data-theme="dark"] {
-    --color-bg: #0a0e1a;
-    --color-fg: #e6e8ee;
-    --color-muted: #8b93a7;
-    --color-border: #1f2640;
-    --color-card: #11172b;
-    /* In dark mode the brand navy disappears, so we swap primary to bright blue
-       so buttons/badges keep contrast. Navy becomes muted-bg flavor. */
-    --color-primary: #4DA3F0;
-    --color-primary-fg: #07101e;
-    --color-accent: #60a5fa;
-    --color-accent-fg: #07101e;
+    --color-bg: #1a1612;
+    --color-fg: #f0ece4;
+    --color-muted: #9a8878;
+    --color-border: #2e2620;
+    --color-card: #221e19;
+    /* In dark mode we lighten primary/accent so they pop against the dark bg. */
+    --color-primary: #5fa870;
+    --color-primary-fg: #0d1f12;
+    --color-accent: #c4895a;
+    --color-accent-fg: #ffffff;
     --color-success: #4ade80;
     --color-warning: #f59e0b;
     --color-danger: #f87171;
-    --brand-mark-navy: #cdd5e6;
-    --brand-mark-accent: #60a5fa;
+    --brand-mark-navy: #d4bfaa;
+    --brand-mark-accent: #e8a96e;
   }
 
   /* ---------- Base ---------- */

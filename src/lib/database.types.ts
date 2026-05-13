@@ -19,6 +19,158 @@ export type Database = {
   }
   public: {
     Tables: {
+      dojo_cases: {
+        Row: {
+          additional_specialties: string[]
+          closes_at: string | null
+          code: string
+          created_at: string
+          created_by: string | null
+          difficulty: number
+          id: string
+          key_factors: Json
+          model_premium_high_cents: number
+          model_premium_low_cents: number
+          model_rationale: string
+          model_recommendation: Database["public"]["Enums"]["dojo_recommendation"]
+          model_red_flags: string[]
+          packet: Json
+          primary_specialty: string
+          red_flag_options: string[]
+          scenario: string
+          slug: string
+          status: Database["public"]["Enums"]["dojo_case_status"]
+          summary: string
+          time_limit_minutes: number | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          additional_specialties?: string[]
+          closes_at?: string | null
+          code: string
+          created_at?: string
+          created_by?: string | null
+          difficulty: number
+          id?: string
+          key_factors?: Json
+          model_premium_high_cents: number
+          model_premium_low_cents: number
+          model_rationale: string
+          model_recommendation: Database["public"]["Enums"]["dojo_recommendation"]
+          model_red_flags?: string[]
+          packet?: Json
+          primary_specialty: string
+          red_flag_options?: string[]
+          scenario: string
+          slug: string
+          status?: Database["public"]["Enums"]["dojo_case_status"]
+          summary: string
+          time_limit_minutes?: number | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          additional_specialties?: string[]
+          closes_at?: string | null
+          code?: string
+          created_at?: string
+          created_by?: string | null
+          difficulty?: number
+          id?: string
+          key_factors?: Json
+          model_premium_high_cents?: number
+          model_premium_low_cents?: number
+          model_rationale?: string
+          model_recommendation?: Database["public"]["Enums"]["dojo_recommendation"]
+          model_red_flags?: string[]
+          packet?: Json
+          primary_specialty?: string
+          red_flag_options?: string[]
+          scenario?: string
+          slug?: string
+          status?: Database["public"]["Enums"]["dojo_case_status"]
+          summary?: string
+          time_limit_minutes?: number | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dojo_cases_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      dojo_submissions: {
+        Row: {
+          case_id: string
+          confidence: number
+          created_at: string
+          factors_score: number
+          id: string
+          matched_factors: string[]
+          missed_factors: string[]
+          premium_cents: number
+          premium_score: number
+          rationale: string
+          recommendation: Database["public"]["Enums"]["dojo_recommendation"]
+          red_flags: string[]
+          score: number
+          user_id: string
+        }
+        Insert: {
+          case_id: string
+          confidence: number
+          created_at?: string
+          factors_score: number
+          id?: string
+          matched_factors?: string[]
+          missed_factors?: string[]
+          premium_cents: number
+          premium_score: number
+          rationale: string
+          recommendation: Database["public"]["Enums"]["dojo_recommendation"]
+          red_flags?: string[]
+          score: number
+          user_id: string
+        }
+        Update: {
+          case_id?: string
+          confidence?: number
+          created_at?: string
+          factors_score?: number
+          id?: string
+          matched_factors?: string[]
+          missed_factors?: string[]
+          premium_cents?: number
+          premium_score?: number
+          rationale?: string
+          recommendation?: Database["public"]["Enums"]["dojo_recommendation"]
+          red_flags?: string[]
+          score?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "dojo_submissions_case_id_fkey"
+            columns: ["case_id"]
+            isOneToOne: false
+            referencedRelation: "dojo_cases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dojo_submissions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       dojo_waitlist: {
         Row: {
           created_at: string
@@ -450,6 +602,12 @@ export type Database = {
     }
     Enums: {
       budget_type: "hourly" | "flat" | "volunteer" | "per_find" | "milestone"
+      dojo_case_status: "draft" | "published" | "closed"
+      dojo_recommendation:
+        | "approve"
+        | "decline"
+        | "quote_with_modifications"
+        | "needs_more_info"
       job_status: "open" | "claimed" | "submitted" | "completed" | "cancelled"
       job_type:
         | "renewal_review"
@@ -615,6 +773,13 @@ export const Constants = {
   public: {
     Enums: {
       budget_type: ["hourly", "flat", "volunteer", "per_find", "milestone"],
+      dojo_case_status: ["draft", "published", "closed"],
+      dojo_recommendation: [
+        "approve",
+        "decline",
+        "quote_with_modifications",
+        "needs_more_info",
+      ],
       job_status: ["open", "claimed", "submitted", "completed", "cancelled"],
       job_type: [
         "renewal_review",

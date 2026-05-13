@@ -1,10 +1,10 @@
+import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
-import { DugMark } from "@/components/dug-mark";
 import { WaitlistForm } from "./waitlist-form";
 import {
   ArrowRight,
@@ -25,7 +25,7 @@ import {
 export const metadata = {
   title: "The Dojo — DUG",
   description:
-    "Get reps at the plate. Practice underwriting cases, compete in contests, and build a public training record before your first paid job.",
+    "Get reps at the plate. Practice underwriting cases, compete in contests, and build a public training record before your first paid engagement.",
 };
 
 export default function DojoPage() {
@@ -35,54 +35,75 @@ export default function DojoPage() {
       <main>
 
         {/* ───────────────────────────  Hero  ─────────────────────────── */}
-        <section className="border-b bg-gradient-to-b from-[var(--color-card)] to-[var(--color-bg)]">
-          <div className="container-page py-12 sm:py-24">
-            <div className="grid items-center gap-10 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <div className="max-w-3xl">
-                <Badge variant="accent" className="mb-4">Coming soon — join the waitlist</Badge>
-                <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl lg:text-5xl">
-                  The Underwriting Dojo.
-                </h1>
-                <p className="mt-4 text-lg text-[var(--color-muted)] sm:text-xl">
-                  An Uber driver isn&apos;t a professional driver — but they can become one.
-                  The Dojo is the vessel. Get structured reps on real risk scenarios
-                  instead of waiting for a carrier to sweep you up and train you.
-                </p>
-                <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-                  <Link href="#join" className="w-full sm:w-auto">
-                    <Button size="lg" variant="primary" className="w-full sm:w-auto">
-                      Join the waitlist
-                      <ArrowRight className="h-4 w-4" />
-                    </Button>
-                  </Link>
-                  <Link href="#how-it-works" className="w-full sm:w-auto">
-                    <Button size="lg" variant="secondary" className="w-full sm:w-auto">
-                      See how a rep works
-                    </Button>
-                  </Link>
-                </div>
+        <section className="relative border-b overflow-hidden bg-[var(--color-card)]">
+          {/* Banner — fills the section on lg+, hidden on mobile */}
+          <div className="hidden lg:block absolute inset-0">
+            <Image
+              src="/dug-banner.png"
+              alt="DUG mascot"
+              fill
+              className="object-cover object-center"
+              priority
+            />
+          </div>
 
-                {/* Quick proof line */}
-                <div className="mt-8 grid max-w-xl grid-cols-3 gap-4 border-t border-[var(--color-border)] pt-6 text-sm">
-                  <div>
-                    <div className="text-2xl font-semibold tracking-tight">100+</div>
-                    <div className="text-[var(--color-muted)]">cases at launch</div>
-                  </div>
-                  <div>
-                    <div className="text-2xl font-semibold tracking-tight">12</div>
-                    <div className="text-[var(--color-muted)]">specialty lines</div>
-                  </div>
-                  <div>
-                    <div className="text-2xl font-semibold tracking-tight">5</div>
-                    <div className="text-[var(--color-muted)]">difficulty tiers</div>
-                  </div>
-                </div>
+          <div className="relative z-10 container-page py-10 sm:py-20 lg:py-28">
+            {/* Mobile banner — shown only when full-bleed banner is hidden */}
+            <div className="flex justify-center mb-6 lg:hidden">
+              <Image
+                src="/dug-banner-full-name.png"
+                alt="DUG — Decentralized Underwriting Group"
+                width={2172}
+                height={724}
+                className="w-full max-w-sm object-contain"
+                priority
+              />
+            </div>
+
+            {/* Force dark text — banner is always light regardless of theme */}
+            <div className="max-w-xl [color-scheme:light]" style={{ color: "#1a1008" }}>
+              <Badge variant="accent" className="mb-4">
+                Coming soon — join the waitlist
+              </Badge>
+              <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl lg:text-5xl !text-[#1a1008]">
+                The Underwriting Dojo.
+              </h1>
+              <p className="mt-4 text-lg sm:text-xl !text-[#3d2b1f]">
+                An Uber driver isn&apos;t a professional driver — but they can become one.
+                The Dojo is the vessel. Get structured reps on real risk scenarios
+                instead of waiting for a carrier to sweep you up and train you.
+              </p>
+              <div className="mt-7 flex flex-col gap-3 sm:flex-row">
+                <Link href="/dojo/cases/coastal-habitational-renewal" className="w-full sm:w-auto">
+                  <Button size="lg" variant="primary" className="w-full sm:w-auto">
+                    Take the first case
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                </Link>
+                <Link href="#join" className="w-full sm:w-auto">
+                  <Button
+                    size="lg"
+                    variant="secondary"
+                    className="w-full sm:w-auto !text-[#1a1008]"
+                  >
+                    Join the waitlist
+                  </Button>
+                </Link>
               </div>
 
-              <div className="hidden lg:flex lg:items-center lg:justify-center">
-                <div className="relative">
-                  <div className="absolute inset-0 -m-6 rounded-full bg-[var(--color-accent)]/10 blur-2xl" />
-                  <DugMark className="relative h-64 w-64" title="Digger — DUG mascot" />
+              {/* Quick proof line */}
+              <div className="mt-8 grid max-w-xl grid-cols-3 gap-4 border-t border-[#1a1008]/15 pt-6 text-sm">
+                <div>
+                  <div className="text-2xl font-semibold tracking-tight !text-[#1a1008]">1</div>
+                  <div className="!text-[#5c4033]">live case · more soon</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-semibold tracking-tight !text-[#1a1008]">12</div>
+                  <div className="!text-[#5c4033]">specialty lines</div>
+                </div>
+                <div>
+                  <div className="text-2xl font-semibold tracking-tight !text-[#1a1008]">5</div>
+                  <div className="!text-[#5c4033]">difficulty tiers</div>
                 </div>
               </div>
             </div>
@@ -99,7 +120,7 @@ export default function DojoPage() {
               </h2>
               <p className="mt-2 text-[var(--color-muted)]">
                 Every Dojo case follows the same loop the marketplace uses. By the time
-                you take a paid job, the workflow is muscle memory.
+                you take a paid engagement, the workflow is muscle memory.
               </p>
             </div>
 
@@ -115,7 +136,7 @@ export default function DojoPage() {
                   n: "02",
                   icon: Layers,
                   title: "Submit your read",
-                  body: "Rationale, premium suggestion, red flags, confidence. Same fields a paid job would use. Same time pressure if you want it.",
+                  body: "Rationale, premium suggestion, red flags, confidence. Same fields a paid engagement would use. Same time pressure if you want it.",
                 },
                 {
                   n: "03",
@@ -225,12 +246,15 @@ export default function DojoPage() {
               </ul>
             </div>
 
-            {/* The mock case card */}
-            <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-sm">
+            {/* Live case card — clicks through to the real submit page */}
+            <Link
+              href="/dojo/cases/coastal-habitational-renewal"
+              className="group block rounded-2xl border border-[var(--color-border)] bg-[var(--color-card)] shadow-sm transition hover:border-[var(--color-accent)] hover:shadow-md"
+            >
               <div className="flex items-center justify-between border-b border-[var(--color-border)] px-5 py-3 text-xs">
                 <span className="flex items-center gap-2 text-[var(--color-muted)]">
                   <Lock className="h-3.5 w-3.5" />
-                  Dojo Case · DOJO-2026-014
+                  Dojo Case · DOJO-2026-001
                 </span>
                 <Badge variant="warning">Difficulty 4 / 5</Badge>
               </div>
@@ -240,7 +264,7 @@ export default function DojoPage() {
                   <Badge variant="default">CAT — Wind / Hail</Badge>
                   <Badge variant="default">Loss-troubled</Badge>
                 </div>
-                <h3 className="mt-3 font-semibold">
+                <h3 className="mt-3 font-semibold group-hover:text-[var(--color-accent)]">
                   Coastal habitational renewal — 312-unit garden style, 3 hail losses in 4 yrs
                 </h3>
                 <p className="mt-1.5 text-sm text-[var(--color-muted)]">
@@ -254,7 +278,7 @@ export default function DojoPage() {
                     { k: "TIV", v: "$48.2M" },
                     { k: "Loss ratio (5yr)", v: "138%" },
                     { k: "Time limit", v: "60 min" },
-                    { k: "Reps so far", v: "47" },
+                    { k: "Status", v: "Open" },
                   ].map(({ k, v }) => (
                     <div
                       key={k}
@@ -269,15 +293,15 @@ export default function DojoPage() {
                 <div className="mt-5 flex items-center justify-between border-t border-[var(--color-border)] pt-4 text-xs text-[var(--color-muted)]">
                   <span className="flex items-center gap-1.5">
                     <Flame className="h-3.5 w-3.5 text-[var(--color-accent)]" />
-                    Hot — 12 submissions in last 24h
+                    First live case in the Dojo
                   </span>
-                  <span className="flex items-center gap-1.5">
-                    <Clock className="h-3.5 w-3.5" />
-                    Closes in 2d 14h
+                  <span className="flex items-center gap-1.5 font-semibold text-[var(--color-accent)]">
+                    Take a rep
+                    <ArrowRight className="h-3.5 w-3.5" />
                   </span>
                 </div>
               </div>
-            </div>
+            </Link>
           </div>
         </section>
 

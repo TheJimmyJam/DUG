@@ -51,7 +51,7 @@ export function ProfileForm({
             maxLength={32}
             pattern="[a-zA-Z0-9_-]+"
           />
-          <p className="mt-1 text-xs text-[var(--color-muted)]">
+          <p className="mt-1 text-xs text-[var(--color-fg)]">
             Your public URL: dug.app/u/{profile?.handle ?? "your-handle"}
           </p>
         </div>
@@ -127,7 +127,7 @@ export function ProfileForm({
             </label>
           ))}
         </div>
-        <p className="mt-1 text-xs text-[var(--color-muted)]">
+        <p className="mt-1 text-xs text-[var(--color-fg)]">
           Underwriters claim and analyze jobs. Posters submit them. &ldquo;Both&rdquo; lets
           you do either.
         </p>
@@ -135,7 +135,7 @@ export function ProfileForm({
 
       <div>
         <Label>Specialties</Label>
-        <p className="mt-0.5 mb-3 text-xs text-[var(--color-muted)]">
+        <p className="mt-0.5 mb-3 text-xs text-[var(--color-fg)]">
           Tag the areas you can confidently analyze. We use these for matching.
         </p>
         <div className="space-y-4">
@@ -144,7 +144,7 @@ export function ProfileForm({
             if (items.length === 0) return null;
             return (
               <fieldset key={group}>
-                <legend className="text-xs font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+                <legend className="text-xs font-semibold uppercase tracking-wide text-[var(--color-fg)]">
                   {group}
                 </legend>
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -162,7 +162,7 @@ export function ProfileForm({
                           defaultChecked={isOn}
                           className="peer sr-only"
                         />
-                        <span className="inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium transition-colors peer-checked:bg-[var(--color-primary)] peer-checked:text-[var(--color-primary-fg)] peer-checked:border-[var(--color-primary)] hover:bg-[var(--color-border)]/50">
+                        <span className="inline-flex items-center rounded-full border border-[var(--color-border)] px-3 py-1 text-xs font-medium text-[var(--color-fg)] transition-colors peer-checked:bg-[var(--color-primary)] peer-checked:text-[var(--color-primary-fg)] peer-checked:border-[var(--color-primary)] hover:bg-[var(--color-border)]/50">
                           {s.label}
                         </span>
                       </label>
