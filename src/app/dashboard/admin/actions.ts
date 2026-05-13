@@ -257,8 +257,8 @@ const LOSS_HISTORY_PHRASES_D = [
   (amt: number) => `Two property losses in the past ${pickD([3,4,5])} years, $${amt}K aggregate.`,
   (amt: number) => `Prior carrier non-renewed after a $${amt}K claim. Now in the E&S market.`,
   (amt: number) => `Loss ratio was ${pickD([55,60,65,70,75,80,85])}% last year. Carrier requesting $${amt}K rate increase.`,
-  (_: number) => `Clean loss history — ${pickD(YEARS_CLEAN_D)} years with no claims.`,
-  (_: number) => `No prior coverage. First time seeking this line.`,
+  (_amt: number) => `Clean loss history — ${pickD(YEARS_CLEAN_D)} years with no claims.`,
+  (_amt: number) => `No prior coverage. First time seeking this line.`,
   (amt: number) => `One workers comp claim ($${amt}K) closed. GL still clean.`,
   (amt: number) => `Adverse outcome claim in litigation — reserve set at $${amt}K, not yet resolved.`,
 ];

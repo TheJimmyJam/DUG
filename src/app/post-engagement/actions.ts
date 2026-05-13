@@ -60,7 +60,7 @@ const REQUESTER_TYPE_VALUES = [
 ] as const;
 
 // Milestone schema for program design / high-value engagements
-const milestoneSchema = z.object({
+const _milestoneSchema = z.object({
   label: z.string().min(1).max(100),
   amount_dollars: z.coerce.number().int().min(1),
 });

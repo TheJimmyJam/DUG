@@ -475,6 +475,7 @@ function JobsTab({
   const [filterStatus, setFilterStatus] = useState("all");
   const [msg, setMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   
+  const [editId, setEditId] = useState<string | null>(null);
   const [editData, setEditData] = useState<Partial<JobRow>>({});
   const [pending, startTransition] = useTransition();
 
