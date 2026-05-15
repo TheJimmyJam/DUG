@@ -1,0 +1,6585 @@
+#!/usr/bin/env python3
+"""
+Generate the SQL migration file that seeds Dojo with ~50 new practice cases
+spanning the 22 lines of insurance + jurisdictional + programs scenarios.
+
+Run:
+    python3 scripts/generate_dojo_seed.py
+
+Emits to: supabase/migrations/20260514000000_dojo_seed_cases_batch.sql
+"""
+from __future__ import annotations
+import json
+import os
+import textwrap
+from dataclasses import dataclass, field
+from typing import Any
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def dq(text: str, tag: str = "TXT") -> str:
+    """Postgres dollar-quoted string. Picks a tag that isn't in the text."""
+    t = tag
+    i = 0
+    while f"${t}$" in text:
+        i += 1
+        t = f"{tag}{i}"
+    return f"${t}${text}${t}$"
+
+
+def sql_array(items: list[str]) -> str:
+    """Render a Postgres text[] literal from a Python list."""
+    quoted = ", ".join(dq(x, "I") for x in items)
+    return f"array[{quoted}]::text[]"
+
+
+def sql_jsonb(obj: Any) -> str:
+    """Render a jsonb literal."""
+    return f"{dq(json.dumps(obj, ensure_ascii=False), 'J')}::jsonb"
+
+
+@dataclass
+class Case:
+    code: str
+    slug: str
+    title: str
+    summary: str
+    scenario: str
+    primary_specialty: str
+    additional_specialties: list[str]
+    difficulty: int
+    time_limit_minutes: int
+    packet: dict
+    red_flag_options: list[str]
+    model_rationale: str
+    model_premium_low: int       # dollars
+    model_premium_high: int      # dollars
+    model_recommendation: str    # enum
+    key_factors: list[dict]      # [{label, match[], weight}]
+    model_red_flags: list[str]
+
+    def to_sql(self) -> str:
+        return f"""insert into public.dojo_cases (
+  code, slug, title, summary, scenario,
+  primary_specialty, additional_specialties,
+  difficulty, time_limit_minutes,
+  packet, red_flag_options,
+  model_rationale,
+  model_premium_low_cents, model_premium_high_cents,
+  model_recommendation,
+  key_factors, model_red_flags, status
+) values (
+  {dq(self.code, 'C')},
+  {dq(self.slug, 'S')},
+  {dq(self.title, 'T')},
+  {dq(self.summary, 'SUM')},
+  {dq(self.scenario, 'SCN')},
+  {dq(self.primary_specialty, 'PS')},
+  {sql_array(self.additional_specialties)},
+  {self.difficulty},
+  {self.time_limit_minutes},
+  {sql_jsonb(self.packet)},
+  {sql_array(self.red_flag_options)},
+  {dq(self.model_rationale, 'RAT')},
+  {self.model_premium_low * 100},
+  {self.model_premium_high * 100},
+  {dq(self.model_recommendation, 'REC')},
+  {sql_jsonb(self.key_factors)},
+  {sql_array(self.model_red_flags)},
+  'published'
+)
+on conflict (code) do nothing;
+"""
+
+
+# ---------------------------------------------------------------------------
+# CASES
+# ---------------------------------------------------------------------------
+# Codes start at DOJO-2026-002 (001 was the original coastal habitational case).
+# Difficulty: 1=easiest, 5=hardest.
+# Recommendations: approve / decline / quote_with_modifications / needs_more_info
+# ---------------------------------------------------------------------------
+
+cases: list[Case] = []
+
+# === BATCH 1: Casualty + Workers Comp + Occ Accident (8 cases) =============
+
+cases.append(Case(
+    code="DOJO-2026-002",
+    slug="complex-casualty-amazon-3pl",
+    title="Complex casualty — Amazon DSP 3PL with 4M deliveries / yr",
+    summary="Amazon-branded last-mile DSP, 4M packages/yr across 6 states, broker shopping primary GL + auto. Prior carrier non-renewed citing severity trend. Quote or pass?",
+    scenario="""You're reviewing a primary casualty submission from a retail broker for an Amazon Delivery Service Partner (DSP) operating 6 hubs across TX, OK, AR, LA, MS, and TN. The insured delivers ~4M packages/yr using 380 branded Amazon vans (Rivian + Ford Transit), 410 driver-associates, and 18 dispatch staff.
+
+Coverage requested: $1M / $2M GL, $1M business auto, $5M umbrella, no WC (handled separately).
+
+Exposure:
+- Auto: 380 vans, ~52M miles/yr, telematics through Mentor (Amazon-mandated)
+- Payroll: $14.2M
+- Revenue: $42M
+- Loss history (3 yr): 11 auto BI claims ($1.2M incurred), 2 GL slip-and-fall ($85K), 1 alleged sexual assault claim by driver (pending, $250K reserve)
+- Prior carrier (Progressive Commercial) non-renewed citing severity trend; broker has indications from Berkshire Hathaway GUARD at $2.85M and Great American at $3.15M for the casualty tower
+- Hiring: drivers W-2'd by DSP, 90-day onboarding, Amazon scorecard required
+- Mentor score: fleet avg 808 (Amazon target 800+)
+
+The retail broker is requesting your read: should they bind the Berkshire quote? The DSP owner has 14 years operating but launched this Amazon contract in 2022. Three of the auto BI claims came from a single intersection on a recurring route in Dallas.""",
+    primary_specialty="complex-casualty",
+    additional_specialties=["commercial-auto", "general-liability"],
+    difficulty=4,
+    time_limit_minutes=60,
+    packet={
+        "Operations": "Amazon DSP — 4M packages/yr, 6 states",
+        "Fleet": "380 branded vans (Rivian + Ford Transit)",
+        "Miles/yr": "~52M",
+        "Drivers": "410 W-2 associates",
+        "Payroll": "$14.2M",
+        "Revenue": "$42M",
+        "Loss history": "$1.2M auto BI / $85K GL / $250K assault reserve",
+        "Mentor fleet score": "808 (target 800+)",
+        "Indications": "Berkshire GUARD $2.85M / Great American $3.15M",
+        "Prior carrier": "Progressive — non-renewed for severity",
+    },
+    red_flag_options=[
+        "Severity-driven non-renewal",
+        "Single-intersection BI cluster (Dallas)",
+        "Sexual assault claim by driver",
+        "Heavy reliance on Amazon contract (single-source revenue)",
+        "Rivian fleet — repair / total-loss severity",
+        "Telematics mandated by client, not insured",
+        "Multi-state nuclear verdict exposure (TX/LA)",
+        "Driver turnover rate not disclosed",
+    ],
+    model_rationale="""This is a **quote with modifications** — the Berkshire indication is in range, but the structure needs work before binding.
+
+**Severity profile.** $1.2M auto BI on 52M miles is ~$2.31 per 1,000 miles — workable on a DSP book but trending. The Dallas intersection cluster is the real signal: 3 BI claims at one location indicates either a routing issue, a fatigue/handoff issue, or a problematic local docket (Dallas County is plaintiff-friendly). Require route review and a corrective action plan as a subjectivity.
+
+**Pricing band.** For a $42M revenue / 52M mile DSP with this loss profile and Tier 1 venue exposure (TX/LA), a primary casualty + $5M umbrella in the **$2.7M–$3.4M** range is defensible. Berkshire at $2.85M is on the low end; ensure the umbrella attaches above $1M auto, not $2M, otherwise the price is misleadingly cheap.
+
+**Sexual assault claim.** Pending at $250K reserve — get the petition, get the demand history, and confirm sexual abuse/molestation (SAM) sublimits in the GL and umbrella forms. Many auto/GL forms now sublimit SAM to $100K or exclude entirely; if Berkshire's form is silent or full-limit, that's a coverage win for the insured but a real exposure for the carrier — re-price.
+
+**Mentor score / telematics.** 808 fleet average is solid. But telematics is contractually mandated by Amazon, not insured-driven — when the DSP loses the Amazon contract (high attrition rate industry-wide), the safety program disappears. Add a condition that loss of Amazon DSP status triggers a 60-day rewrite or non-renewal.
+
+**Single-source revenue risk.** ~95% of revenue is Amazon. DSP failure rate is ~30% in years 3–5 per industry studies. Doesn't affect the underwriting math today, but factor in retention strategy.
+
+**Recommendation.** Bind Berkshire at $2.85M subject to: (1) Dallas route corrective action plan, (2) confirmed umbrella attachment at $1M auto, (3) SAM sublimit clarification, (4) loss-of-contract endorsement. If GUARD won't move on those four, go to Great American at $3.15M.""",
+    model_premium_low=2700000,
+    model_premium_high=3400000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "Severity trend", "match": ["severity", "BI", "$1.2M", "52M miles", "per mile"], "weight": 1},
+        {"label": "Venue / nuclear verdict risk", "match": ["Dallas", "Tier 1", "venue", "plaintiff", "Texas", "nuclear", "Louisiana"], "weight": 1},
+        {"label": "Single-intersection cluster", "match": ["cluster", "intersection", "route", "corrective", "fatigue"], "weight": 1},
+        {"label": "Sexual assault / SAM sublimit", "match": ["sexual", "SAM", "abuse", "sublimit", "assault"], "weight": 1},
+        {"label": "Telematics ownership", "match": ["Mentor", "telematics", "Amazon", "contract", "mandated"], "weight": 1},
+        {"label": "Single-source revenue", "match": ["single-source", "concentration", "DSP", "loss of contract", "Amazon-dependent"], "weight": 1},
+        {"label": "Pricing band", "match": ["$2.7", "$2.8", "$3.1", "$3.4", "rate", "band"], "weight": 1},
+        {"label": "Path forward", "match": ["subject to", "bind", "walk", "decline", "recommend", "Berkshire"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Severity-driven non-renewal",
+        "Single-intersection BI cluster (Dallas)",
+        "Sexual assault claim by driver",
+        "Heavy reliance on Amazon contract (single-source revenue)",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-003",
+    slug="complex-casualty-craft-brewery",
+    title="Complex casualty — regional craft brewery + 4 taproom locations",
+    summary="$28M revenue craft brewery + tap rooms in 4 states. Liquor liability, products, GL, EPLI. Recent FDA inspection findings. Reviewing renewal at +18%.",
+    scenario="""Renewal submission for a craft brewery (founded 2014) producing 78,000 BBL/yr with 4 owned taprooms (TX, CO, NC, NY).
+
+Coverage requested: $1M/$2M GL, $2M products/completed ops, $1M liquor liability (separate aggregate), $1M EPLI, $5M umbrella.
+
+Operations:
+- Production: single brewery in Austin, ships in 14 states
+- Taprooms: Austin, Denver, Asheville, Brooklyn — each does food + live music nights
+- Headcount: 142 (84 production, 58 hospitality)
+- Revenue: $28M (62% wholesale, 38% taproom)
+- Payroll: $7.4M
+
+Loss history (5 yr):
+- 4 liquor liability claims ($340K incurred, 1 open at $180K reserve for an alleged over-service leading to fatal MVA in Texas)
+- 2 EPLI claims ($95K — wage/hour collective + 1 sexual harassment settlement)
+- 1 products recall ($420K, contaminated batch traced to spent grain vendor — subrogated 60%)
+- General slips/burns at taprooms: 7 minor claims under $25K each
+
+Expiring premium: $410K. Renewal indication: $485K (+18%). Broker pushing back, insured threatening to remarket.
+
+Other notes:
+- FDA inspection Q3 2025 flagged temperature controls in finished goods storage; CAPA in place, follow-up clean
+- Brooklyn taproom added 2024 — first NY exposure
+- Live music: cover bands only, no national acts; insured carries no separate event policy
+- 2 of the 4 EPLI complaints came from the Brooklyn location""",
+    primary_specialty="complex-casualty",
+    additional_specialties=["hospitality", "products-liability", "employment-practices"],
+    difficulty=3,
+    time_limit_minutes=45,
+    packet={
+        "Revenue": "$28M",
+        "BBL/yr": "78,000",
+        "Taprooms": "4 (TX, CO, NC, NY)",
+        "Payroll": "$7.4M",
+        "Expiring": "$410K",
+        "Renewal indication": "$485K (+18%)",
+        "Open liquor claim": "$180K reserve, fatal MVA, TX",
+        "EPLI": "2 claims, $95K incurred",
+        "Recall": "$420K, 60% subrogated",
+        "FDA finding": "Temp control — CAPA closed",
+    },
+    red_flag_options=[
+        "Open fatal MVA liquor claim (Texas dram shop)",
+        "Brooklyn EPLI concentration",
+        "FDA temperature finding",
+        "Recall subrogation incomplete",
+        "Live music without event coverage",
+        "New jurisdiction (NY) without claims history",
+        "Wholesale into 14 states — products exposure",
+        "Single-source brewing (Austin facility)",
+    ],
+    model_rationale="""This is an **approve at renewal** with two non-negotiable conditions and one pricing pushback.
+
+**Liquor claim is the price-driver.** The $180K reserve for an alleged over-service fatality in Texas is the only material exposure. Texas dram shop (Alcoholic Beverage Code §2.02) requires "obvious intoxication" — a high bar — but jury awards have run $2M–$8M in similar Travis County cases. The $1M liquor limit is adequate but tight; $2M would be safer and is typically only 12–18% more premium. **Push the insured to $2M liquor limit at renewal.**
+
+**Pricing band.** For $28M revenue / 4 taprooms / 78K BBL with this loss profile, the renewal sits in a defensible **$455K–$520K** band. The +18% increase to $485K is reasonable given the open fatal — anything below $455K is mispriced. Insured's remarket threat is real but won't beat this materially; the market for fatal-dram-shop-exposed risks is thin.
+
+**Brooklyn EPLI cluster.** 2 of 4 EPLI claims at a 1-year-old location is a leading indicator. Recommend HR audit subjectivity and possibly a separate retention on Brooklyn for EPLI (e.g., $25K SIR vs. $10K elsewhere). New York wage/hour exposure (NYLL §195, §198) is unique and severe.
+
+**Products / recall.** $420K with 60% subro means net $168K — well within retention. Spent-grain vendor contract should now require COI with additional insured + waiver. Confirm.
+
+**FDA finding.** Closed CAPA on temperature controls is fine. Document it in the file.
+
+**Live music + GL.** Cover bands at owned taprooms are typically picked up under GL with no host liquor exclusion impact, but confirm the GL form doesn't have an "athletic or sporting event" or "amusement device" carve-out triggered by stage construction. If sponsored/ticketed events exceed 25 people, recommend separate event coverage on top.
+
+**Recommendation.** Approve renewal at $485K subject to: (1) liquor limit increased to $2M (~+$45K premium), (2) HR audit at Brooklyn location within 90 days, (3) spent-grain vendor COI verification. Loss-control visit Q1 2026.""",
+    model_premium_low=455000,
+    model_premium_high=520000,
+    model_recommendation="approve",
+    key_factors=[
+        {"label": "Dram shop / fatal liquor claim", "match": ["dram shop", "liquor", "fatal", "over-service", "Texas", "Alcoholic Beverage Code", "§2.02"], "weight": 1},
+        {"label": "Liquor limit adequacy", "match": ["$2M liquor", "$1M liquor", "limit", "aggregate"], "weight": 1},
+        {"label": "EPLI venue concentration", "match": ["Brooklyn", "New York", "EPLI", "NYLL", "wage", "harassment"], "weight": 1},
+        {"label": "Pricing band", "match": ["$455", "$485", "$520", "+18%", "band"], "weight": 1},
+        {"label": "Products / recall subro", "match": ["recall", "subro", "products", "spent grain", "vendor"], "weight": 1},
+        {"label": "FDA / regulatory", "match": ["FDA", "CAPA", "temperature", "inspection"], "weight": 1},
+        {"label": "Live music coverage", "match": ["live music", "event", "cover band", "amusement", "ticketed"], "weight": 1},
+        {"label": "Path forward", "match": ["approve", "subject to", "audit", "renew", "remarket"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Open fatal MVA liquor claim (Texas dram shop)",
+        "Brooklyn EPLI concentration",
+        "Live music without event coverage",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-004",
+    slug="wc-gc-staffing-firm-clerical",
+    title="WC guaranteed cost — staffing firm, 1,400 light-clerical placements",
+    summary="National staffing firm shopping WC after admitted carrier non-renewed citing $4.2M payroll growth in unverified class codes. Light clerical only, claims modest. Quote?",
+    scenario="""Submission for guaranteed-cost workers comp on a national staffing firm. Two-year-old WC program, currently with Travelers, who is non-renewing.
+
+Operations:
+- Light-clerical staffing only — placements limited to NCCI class codes 8810 (clerical) and 8742 (outside sales). No industrial, no healthcare, no temp-to-perm.
+- Client roster: 142 active clients, mostly Fortune 500 back office and shared-service centers
+- States covered: 38 (all NCCI states + CA, NJ, NY, PA, DE monopolistic / state fund states handled separately)
+- Headcount placed: 1,420 W-2 temporary employees
+- Annual payroll: $58M (~$41K avg per placement)
+- Internal staff: 38 in HQ (Dallas)
+
+Loss history (3 yr policy periods):
+- Total claims: 47
+- Total incurred: $186K (mostly carpal tunnel + minor slip-and-falls)
+- 1 large claim: $74K — alleged repetitive stress / cumulative trauma claim in CA, currently in QME stage
+- Mod factor (NCCI): 0.78; California X-Mod 0.81
+
+Travelers's stated reason for non-renewal: "Payroll growth pace and class-code drift." The insured grew from $34M to $58M payroll in 24 months and added 6 new states.
+
+Quote indications:
+- AmTrust: $186K with 7.5% schedule credit
+- Employers: $172K with 5% schedule credit
+- ICW Group: $198K with 2.5% schedule credit
+
+Audit history: No prior premium audit disputes. Insured uses payroll service for class-code assignment.""",
+    primary_specialty="workers-comp-gc",
+    additional_specialties=["multi-jurisdictional"],
+    difficulty=3,
+    time_limit_minutes=40,
+    packet={
+        "Payroll": "$58M",
+        "States": "38",
+        "Headcount": "1,420 W-2 placements",
+        "Class codes": "8810 + 8742 only",
+        "Mod (NCCI)": "0.78",
+        "X-Mod (CA)": "0.81",
+        "Loss history": "$186K / 47 claims (3 yr)",
+        "Largest claim": "$74K CA repetitive stress (open)",
+        "Travelers stance": "Non-renew — payroll growth pace",
+        "Quotes": "AmTrust $186K · Employers $172K · ICW $198K",
+    },
+    red_flag_options=[
+        "Rapid payroll growth (Travelers's stated concern)",
+        "Open CA cumulative trauma claim",
+        "Multi-state expansion (6 new states in 24 mo)",
+        "No premium audit history",
+        "Class-code drift risk in growth markets",
+        "California X-Mod higher than national",
+        "Payroll service handles class assignment (no internal QC)",
+        "Heavy California concentration",
+    ],
+    model_rationale="""This is an **approve** — a clean staffing risk with conservative class codes and a healthy mod. Pricing is competitive but defensible.
+
+**Class codes are the foundation.** 8810 (clerical) at ~$0.16 rate and 8742 (outside sales) at ~$0.21 are among the lowest manual rates in the NCCI bureau. If the placements are genuinely confined to these codes, the loss-cost math justifies the pricing. The Travelers non-renewal concern about "class-code drift" is the underwriting question: are placements actually staying in 8810/8742, or is the firm picking up shipping/clerical hybrid roles that should be 8742 or 8017?
+
+**Pricing band.** On $58M payroll at 78% mod, the unmodified manual premium is roughly $145K–$165K. With expense ratio and risk margin, **$165K–$215K** is the defensible band. All three quotes sit in or just outside this range:
+- **Employers at $172K** is aggressively priced — likely the right answer for a sales win but compresses margin if losses develop.
+- **AmTrust at $186K** is the middle of the band, fair.
+- **ICW at $198K** is the top of the band with weaker credit — pass unless the carrier brings claims-handling advantages (they do in CA).
+
+**California exposure.** X-Mod of 0.81 with an open cumulative trauma claim is the actual risk. CA QME process can drag 18–24 months; a $74K reserve on a CT claim could easily double if the QME finds permanent disability and AOE/COE is confirmed. Recommend confirming the Employers and AmTrust quotes are not net-of-CA, and check the AmTrust California claims handling — they're middling at best on CT defense.
+
+**Premium audit.** This is the bigger risk than the price. With $58M payroll across 38 states, 1,420 W-2 placements, and class-code assignment outsourced to the payroll vendor, a payroll audit could swing 8–15%. Build that into the conversation with the insured.
+
+**Recommendation.** **Approve with Employers at $172K** subject to: (1) class-code spot-audit subjectivity within 90 days of inception, (2) confirmation Employers handles CA CT claims internally (not subbed out), (3) loss-control commitment on ergonomic program for placements >30 hrs/wk on keyboard-intensive accounts. If the CA CT claim closes >$100K mid-term, expect an audit re-rating at renewal.""",
+    model_premium_low=165000,
+    model_premium_high=215000,
+    model_recommendation="approve",
+    key_factors=[
+        {"label": "Class codes 8810 / 8742", "match": ["8810", "8742", "clerical", "outside sales", "class code"], "weight": 1},
+        {"label": "Class-code drift", "match": ["drift", "class code", "audit", "misclassification"], "weight": 1},
+        {"label": "Mod factor analysis", "match": ["0.78", "mod", "modifier", "X-Mod", "0.81"], "weight": 1},
+        {"label": "Pricing band", "match": ["$165", "$172", "$186", "$198", "$215", "band"], "weight": 1},
+        {"label": "California cumulative trauma", "match": ["California", "CA", "QME", "cumulative trauma", "CT", "AOE/COE"], "weight": 1},
+        {"label": "Premium audit risk", "match": ["audit", "payroll", "premium audit", "swing"], "weight": 1},
+        {"label": "Carrier comparison", "match": ["Employers", "AmTrust", "ICW", "credit"], "weight": 1},
+        {"label": "Path forward", "match": ["approve", "subject to", "subjectivity", "recommend", "bind"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Open CA cumulative trauma claim",
+        "Class-code drift risk in growth markets",
+        "Payroll service handles class assignment (no internal QC)",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-005",
+    slug="wc-gc-pizza-franchisee",
+    title="WC guaranteed cost — multi-unit pizza franchisee (38 stores, 5 states)",
+    summary="Franchisee operates 38 pizza locations across the Southeast. Two recent burn claims and a delivery-driver MVA WC claim. Looking for new WC carrier — renewal indications coming in.",
+    scenario="""You're underwriting a new WC submission for a franchisee that operates 38 stores (28 Domino's, 10 Papa John's) across GA, FL, AL, SC, TN.
+
+Coverage requested: guaranteed cost WC, NCCI class codes 9082 (restaurant – fast service) and 7380 (delivery drivers – owned vehicle). All employees W-2; no 1099 delivery drivers.
+
+Exposure:
+- Payroll: $11.8M ($6.4M in 9082, $5.4M in 7380)
+- Headcount: ~620 employees (mix of FT/PT, high turnover ~95%)
+- Stores: 38 (avg 4.3 yrs operating)
+- Mod factor: 1.14 (NCCI, 5-year)
+
+Loss history (3 yr):
+- 24 claims
+- $342K incurred
+- 2 burns ($82K and $54K — pizza oven and fryer)
+- 1 delivery driver MVA WC claim ($94K, struck by drunk driver, returning to work)
+- Balance: cuts, slips, lifting
+- No fatalities, no controverted claims open
+
+Indications:
+- ICW Group: $312K, 0% schedule credit (citing mod 1.14 + 7380 severity)
+- Berkshire GUARD: $295K with 10% schedule credit and required loss-control program
+- Travelers: $338K, 0% credit
+- AmTrust: declined ("delivery exposure outside appetite for new business")
+
+Other notes:
+- Insured uses GPS-based delivery routing
+- 4 stores have ovens older than 12 yr
+- No formal lifting / cut PPE training documented at any location
+- Insured open to safety-program partnership""",
+    primary_specialty="workers-comp-gc",
+    additional_specialties=["hospitality", "commercial-auto"],
+    difficulty=3,
+    time_limit_minutes=35,
+    packet={
+        "Payroll": "$11.8M ($6.4M class 9082 / $5.4M class 7380)",
+        "Stores": "38",
+        "Headcount": "~620",
+        "Turnover": "~95%",
+        "Mod (NCCI)": "1.14",
+        "Loss history": "$342K / 24 claims (3 yr)",
+        "Open severity": "MVA $94K, burns $82K + $54K",
+        "Quotes": "ICW $312K · GUARD $295K · Travelers $338K · AmTrust declined",
+    },
+    red_flag_options=[
+        "Mod factor 1.14 (above 1.0)",
+        "Delivery driver MVA severity",
+        "High turnover (95%) — training depth",
+        "Aging oven equipment (4 stores >12 yr)",
+        "No documented PPE / lifting training",
+        "Multi-state operations",
+        "Burn frequency (2 in 3 yr)",
+        "Class 7380 severity trend industry-wide",
+    ],
+    model_rationale="""This is a **quote with modifications** — Berkshire GUARD at $295K with the loss-control requirement is the right answer, but only if the safety program is real.
+
+**Mod analysis.** 1.14 is above unity but not catastrophic. The 9082 + 7380 combo is structurally tough; 7380 (delivery drivers, owned vehicle) carries one of the highest manual rates in restaurant WC, and severity has trended hard since 2022 due to nuclear MVA verdict creep affecting the WC recovery side (subrogation potential).
+
+**Loss profile.** $342K over 3 years on $11.8M payroll is ~$114K/yr — not great, not terrible. The two burns are operational red flags (aging ovens, PPE gap). The MVA WC claim is exogenous (struck by drunk driver) — likely full subrogation available against the third party's auto policy, which would dramatically improve the mod at the next promulgation cycle. Make sure the carrier is pursuing subro aggressively.
+
+**Pricing band.** For this risk profile, **$290K–$345K** is defensible:
+- **GUARD $295K + 10% schedule credit** is in range, especially with the bundled loss-control program (worth $15K–$25K of value).
+- **ICW $312K, no credit** is fair but provides no service value.
+- **Travelers $338K** is on the high end and only worth it if the insured wants the brand stability.
+- **AmTrust decline** is informative — the delivery class is shedding markets.
+
+**Subjectivities (real risk-mitigation).**
+1. Replace or recondition the 4 ovens older than 12 years within 120 days. Burn claims at QSRs almost always trace to ungrounded heating elements or worn door gaskets.
+2. Implement and document monthly PPE inspections (cut gloves, anti-slip mats, oven mitts) with sign-off.
+3. GPS routing audit — confirm drivers aren't routed through high-MVA corridors after 10 PM (delivery WC severity is concentrated in 10 PM–2 AM).
+4. Aggressive subro on the MVA claim against the at-fault driver's auto carrier; track recovery for next year's mod.
+
+**Turnover.** 95% is at industry median for QSR. The risk is training depth — frontline supervisors at high-turnover locations are usually 24-month tenured at most. Couple the subjectivities with a 90-day onboarding safety module.
+
+**Recommendation.** **Bind GUARD at $295K** subject to the 4 subjectivities above. Audit ovens at month 4, loss control re-visit at month 8.""",
+    model_premium_low=290000,
+    model_premium_high=345000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "Mod analysis (1.14)", "match": ["1.14", "mod", "modifier", "above unity"], "weight": 1},
+        {"label": "Class code mix (9082/7380)", "match": ["9082", "7380", "restaurant", "delivery"], "weight": 1},
+        {"label": "Delivery severity / nuclear verdict", "match": ["delivery", "MVA", "severity", "nuclear", "subro", "subrogation"], "weight": 1},
+        {"label": "Burn / oven exposure", "match": ["burn", "oven", "PPE", "fryer", "aging"], "weight": 1},
+        {"label": "Pricing band", "match": ["$290", "$295", "$312", "$338", "$345", "band"], "weight": 1},
+        {"label": "Loss control / safety program", "match": ["loss control", "safety program", "subjectivity", "PPE", "training"], "weight": 1},
+        {"label": "Subrogation on exogenous MVA", "match": ["subrogation", "subro", "third party", "at-fault"], "weight": 1},
+        {"label": "Path forward", "match": ["GUARD", "bind", "approve", "subject to", "recommend"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Delivery driver MVA severity",
+        "Aging oven equipment (4 stores >12 yr)",
+        "No documented PPE / lifting training",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-006",
+    slug="wc-ls-large-deductible-meatpacker",
+    title="WC loss sensitive — $1M large-deductible plan for Midwest meatpacker",
+    summary="$340M payroll meatpacker shopping its $1M large-deductible WC plan. 3-year loss pick analysis. Bind, restructure, or push to retro?",
+    scenario="""You're reviewing a renewal on a $1M-per-occurrence large-deductible WC program for a Midwest-based meat processor.
+
+Operations:
+- 3 plants (NE, IA, MO), poultry + beef processing
+- NCCI class 2089 (slaughtering) + 8810 (clerical) + 7380 (drivers)
+- Payroll: $340M total ($278M in 2089)
+- Headcount: ~6,800 (line + processing + admin + transport)
+- 5-year-mod: 0.92 (better than industry average ~1.10 for this class)
+- Indemnity duration trending down (currently 142 days avg, was 168 in 2022)
+
+Program structure (expiring):
+- $1M SIR per occurrence
+- $5.2M aggregate stop-loss
+- Loss pick at policy inception: $7.8M
+- Premium for the insurance / collateral / TPA fees: $4.6M
+- Collateral: $9.4M LOC posted to carrier
+
+Loss history (5 yr, ground-up):
+- AY 2021: $8.1M
+- AY 2022: $7.4M
+- AY 2023: $7.9M
+- AY 2024: $6.8M (4 mo immature)
+- AY 2025: $5.1M (10 mo immature)
+- One open lung-laceration claim from 2023: $1.4M incurred, possibly developing to $1.9M+
+
+Renewal indications:
+- Carrier A (incumbent): $4.9M, same structure, loss pick $7.6M
+- Carrier B: $4.6M, but with $7.2M agg stop-loss (tighter), loss pick $7.4M
+- Carrier C: pitching a sliding-scale retro plan at $4.1M minimum / $8.7M maximum, retro adjustments at 18/30/42 mo
+
+The CFO wants to discuss whether the retro structure makes sense given collateral cost (LOC at SOFR + 175 bps = roughly $370K/yr carrying cost).""",
+    primary_specialty="workers-comp-ls",
+    additional_specialties=["programs"],
+    difficulty=5,
+    time_limit_minutes=60,
+    packet={
+        "Payroll": "$340M ($278M class 2089)",
+        "Plants": "3 (NE, IA, MO)",
+        "Headcount": "~6,800",
+        "5-yr mod": "0.92",
+        "SIR": "$1M per occ / $5.2M agg stop-loss",
+        "Expiring premium": "$4.6M",
+        "Loss pick": "$7.8M (expiring)",
+        "Collateral": "$9.4M LOC ($370K/yr carry)",
+        "Indications": "A $4.9M (same) · B $4.6M (tighter agg) · C retro $4.1M–$8.7M",
+    },
+    red_flag_options=[
+        "Adverse development on 2023 lung-laceration claim",
+        "Carrier B's tighter agg stop-loss",
+        "Retro plan worst-case downside ($8.7M)",
+        "Collateral cost (~$370K/yr)",
+        "Loss pick accuracy vs. emerging years",
+        "Class 2089 severity trend (industry)",
+        "AY 2024 / 2025 immaturity",
+        "Tier-1 plant concentration (3 sites)",
+    ],
+    model_rationale="""This is a **needs_more_info / restructure** call — the structure matters more than the price, and the data needed to decide cleanly isn't fully on the table.
+
+**Loss pick reality check.** Expiring loss pick was $7.8M; ground-up actual development is averaging ~$7.0M across mature years (2021-2023) with both immature years tracking slightly better. AY 2024 at $6.8M with 4 months immature suggests final development somewhere $7.5M–$8.5M; AY 2025 at $5.1M with 10 months tracks to something similar. **The $7.8M pick is probably $200K–$500K high.** That's a real number on a $340M payroll book.
+
+**Aggregate stop-loss is the bigger lever.** Expiring is $5.2M agg. Carrier B is offering $7.2M — that's a *worse* deal for the insured wrapped as a price cut. At $5.2M agg, after 5 years of losses at $7.0M ground-up, the insured was reliably hitting the agg and the carrier was eating the tail. At $7.2M, the insured retains everything. Compare:
+- 2021: $8.1M actual vs. $5.2M agg → carrier paid $2.9M of tail; vs. $7.2M agg → carrier paid $0.9M. Big swing.
+- That swing must be priced in if you accept it.
+
+**Retro plan analysis.** Carrier C's sliding-scale retro at $4.1M min / $8.7M max is interesting because:
+- Min ($4.1M) is below all guaranteed-cost equivalents. Wins on cash-flow if losses behave.
+- Max ($8.7M) is $1.0M+ above current guaranteed cost equivalent. Real downside.
+- The 18/30/42-month adjustment cadence means cash deferral but also extended uncertainty on the books.
+- Better suited for an insured with stable, declining loss trend — which this insured arguably has (mod going from ~1.0 to 0.92, duration down 26 days). Defensible.
+
+**Collateral.** $9.4M LOC at SOFR+175 = ~$370K/yr is real money. If the structure shifts to retro with paid-loss collateral basis, this could drop to $4M–$5M LOC, saving $170K–$200K/yr in carry. **Negotiate paid-loss collateral basis, not incurred-loss.**
+
+**The 2023 lung-laceration claim.** $1.4M reserve potentially developing to $1.9M+ — get the latest reserve worksheet and a defense-counsel summary. If this is heading toward $2M+ and the SIR is $1M, the carrier eats the rest, which is good for the insured but it's exactly the kind of severity that drives carrier appetite to harden agg stop-loss terms (which is exactly what Carrier B is doing).
+
+**Recommendation.** Decline all three indications as presented. Request:
+1. Carrier A re-quote with paid-loss collateral and loss pick at $7.3M (not $7.6M).
+2. Carrier B re-quote at $5.2M agg (not $7.2M); if they hold the line at $7.2M, the apparent savings disappear.
+3. Carrier C retro: get the slope and per-claim cap details. Underwrite the retro only if final negotiation shows max <$8.0M with same SIR.
+
+If after re-quote the best structure is still GC, AY 2024–2025 trajectory says a 5% premium reduction is justified, not flat. Push for that.""",
+    model_premium_low=4200000,
+    model_premium_high=4900000,
+    model_recommendation="needs_more_info",
+    key_factors=[
+        {"label": "Loss pick analysis", "match": ["loss pick", "$7.8M", "$7.0M", "development", "AY"], "weight": 1},
+        {"label": "Aggregate stop-loss lever", "match": ["agg", "aggregate", "stop-loss", "$5.2M", "$7.2M", "tail"], "weight": 1},
+        {"label": "Retro plan economics", "match": ["retro", "retrospective", "sliding-scale", "min", "max", "$4.1M", "$8.7M"], "weight": 1},
+        {"label": "Collateral / LOC carry", "match": ["collateral", "LOC", "letter of credit", "paid-loss", "incurred", "carry", "$370K"], "weight": 1},
+        {"label": "2023 lung-laceration claim", "match": ["lung", "laceration", "reserve", "$1.4M", "$1.9M", "$2M"], "weight": 1},
+        {"label": "Mod / duration trend", "match": ["mod", "0.92", "duration", "indemnity", "trend"], "weight": 1},
+        {"label": "Restructure path", "match": ["restructure", "re-quote", "negotiate", "paid-loss", "renegotiate"], "weight": 1},
+        {"label": "Decision framework", "match": ["decline", "more info", "needs_more_info", "subject to"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Adverse development on 2023 lung-laceration claim",
+        "Carrier B's tighter agg stop-loss",
+        "Retro plan worst-case downside ($8.7M)",
+        "Collateral cost (~$370K/yr)",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-007",
+    slug="wc-ls-trucking-deductible-program",
+    title="WC loss sensitive — $500K deductible plan, 1,200-power-unit trucking",
+    summary="National TL carrier with 1,200 power units, 5-state base. Loss-sensitive WC with $500K SIR. Mod 1.06. Carrier wants 6% rate increase. Negotiation strategy?",
+    scenario="""$185M revenue truckload (TL) carrier shopping its $500K deductible WC plan at renewal.
+
+Operations:
+- 1,200 owned power units (Class 8 sleeper tractors)
+- 1,650 employed drivers (all W-2)
+- 5 terminals (TX, OK, KS, MO, IL)
+- NCCI class 7228 (trucking — long-haul)
+- Payroll: $116M (drivers) + $14M (terminal/mechanic/admin)
+- 4-year-mod: 1.06
+
+Program (expiring):
+- $500K SIR per occurrence
+- $3.8M aggregate stop-loss
+- Loss pick: $4.6M
+- Premium: $1.8M
+- TPA: in-house claims dept + carrier oversight, $410K TPA fee
+- Collateral: $4.2M cash + LOC blend
+
+Loss history (5 yr, ground-up):
+- AY 2021: $4.1M (mature)
+- AY 2022: $4.8M (mature)
+- AY 2023: $5.4M (1 large open at $1.1M reserve, fatal MVA WC death)
+- AY 2024: $3.9M (immature)
+- AY 2025: $3.0M ytd (very immature)
+
+Carrier proposing:
+- 6% rate increase ($1.91M premium)
+- Same SIR/agg structure
+- Loss pick at $4.7M
+- Collateral hold at $4.2M
+
+Insured's argument:
+- 2025 losses tracking well below pick
+- Telematics rollout completed Q2 2024 (Samsara across full fleet)
+- Wellness program added (sleep apnea testing) Q1 2025
+- Driver turnover down from 92% to 71% YoY""",
+    primary_specialty="workers-comp-ls",
+    additional_specialties=["transportation", "programs"],
+    difficulty=4,
+    time_limit_minutes=45,
+    packet={
+        "Power units": "1,200",
+        "Drivers": "1,650 W-2",
+        "Payroll": "$130M ($116M drivers)",
+        "Mod (4-yr)": "1.06",
+        "SIR / agg": "$500K / $3.8M",
+        "Loss pick": "$4.6M expiring; carrier proposing $4.7M",
+        "Open severity": "$1.1M reserve, fatal MVA",
+        "Telematics": "Samsara, fleet-wide Q2 2024",
+        "Driver turnover": "92% → 71% YoY",
+    },
+    red_flag_options=[
+        "Open fatal MVA WC claim (~$1.1M)",
+        "AY 2023 above pick",
+        "Class 7228 severity trend",
+        "Collateral negotiation lever ignored",
+        "Telematics rollout not yet reflected in mod",
+        "Driver turnover still high (71%)",
+        "Multi-jurisdictional adjustment risk (TX/OK death benefits)",
+        "TPA fee escalation",
+    ],
+    model_rationale="""This is an **approve with modifications** — the insured has a real story to tell about underlying improvement, and the carrier's flat-renewal-with-rate-increase doesn't credit it. Negotiate.
+
+**Improvement signals are real.**
+- Fleet-wide Samsara telematics rolled out Q2 2024 typically produces a 15–25% reduction in DOT preventable incidents within 12–18 months. AY 2025 YTD at $3.0M (annualizing to maybe $3.6M–$4.2M) is consistent with that.
+- Driver turnover going 92% → 71% is a leading indicator for tenure, which is the single strongest predictor of claim frequency. Drivers with 2+ years tenure have ~40% fewer indemnity claims than first-year drivers.
+- Sleep apnea program added Q1 2025 — too early to credit but operationally sound.
+
+**Loss pick analysis.** Carrier proposing $4.7M (up $100K from $4.6M expiring). The 5-year average is $4.24M ($4.1+$4.8+$5.4+$3.9+$3.0 = $21.2M / 5 = $4.24M). Even with development on AY 2024/2025 the trend is downward. **A defensible pick is $4.3M–$4.5M, not $4.7M.** Push back hard.
+
+**Open fatal MVA WC claim.** $1.1M reserve on a fatal — the question is jurisdiction. Texas death benefits are capped (lifetime weekly benefit, max 8 yrs unless burial expenses + dependent issues), Oklahoma similar with state-specific quirks, Missouri uncapped for surviving spouse + minor children. Get the jurisdiction. If TX or OK, the $1.1M may overstate; if MO or IL, it may understate. Either way, isolate this claim from the development pattern in your loss-pick math (it's a singular event, not a trend).
+
+**Aggregate stop-loss / SIR.** $500K SIR is appropriate for fleet this size. $3.8M agg is tight for a $4.3M expected loss year — the carrier ate ~$1.0M in 2022 and 2023. With improving trend, the agg becomes less valuable, but don't volunteer to relax it unless the price reflects the swap.
+
+**Collateral.** $4.2M cash+LOC blend is high. With improving loss trend and telematics in place, push for collateral reduction to $3.5M by end of policy period contingent on AY 2025 closing at <$3.8M. Worth $30–50K/yr to the insured.
+
+**Pricing band.**
+- $4.3M pick × LDF + carrier expense ≈ **$1.65M–$1.85M premium** is defensible.
+- Carrier's $1.91M is at the top of the band; flat renewal at $1.80M is the negotiating midpoint.
+- Don't shop the program — switching carriers on a deductible program with $4.2M collateral mid-cycle has friction costs ($150K+ in LOC re-establishment, claims re-routing, run-off).
+
+**Recommendation.** Approve subject to:
+1. Loss pick re-set to $4.4M (carrier will counter $4.55M; settle there).
+2. Premium at $1.80M flat (not $1.91M).
+3. Collateral step-down trigger at $3.5M if AY 2025 closes <$3.8M.
+4. Quarterly claims review on the fatal MVA file with jurisdictional benefits worksheet attached.""",
+    model_premium_low=1650000,
+    model_premium_high=1850000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "Telematics impact on loss trend", "match": ["telematics", "Samsara", "DOT", "preventable", "incident"], "weight": 1},
+        {"label": "Loss pick negotiation", "match": ["loss pick", "$4.6M", "$4.7M", "$4.3M", "$4.4M", "$4.5M", "average"], "weight": 1},
+        {"label": "Driver tenure / turnover", "match": ["turnover", "tenure", "92%", "71%", "frequency"], "weight": 1},
+        {"label": "Fatal MVA jurisdictional analysis", "match": ["fatal", "Texas", "Oklahoma", "Missouri", "death benefit", "jurisdiction"], "weight": 1},
+        {"label": "Aggregate / SIR structure", "match": ["agg", "SIR", "aggregate", "$500K", "$3.8M", "stop-loss"], "weight": 1},
+        {"label": "Collateral step-down", "match": ["collateral", "step-down", "LOC", "$4.2M", "$3.5M"], "weight": 1},
+        {"label": "Pricing band", "match": ["$1.65M", "$1.80M", "$1.85M", "$1.91M", "rate increase"], "weight": 1},
+        {"label": "Path forward / negotiate", "match": ["negotiate", "approve", "subject to", "counter"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Open fatal MVA WC claim (~$1.1M)",
+        "Multi-jurisdictional adjustment risk (TX/OK death benefits)",
+        "Telematics rollout not yet reflected in mod",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-008",
+    slug="occ-accident-1099-rideshare",
+    title="Occupational accident — 1099 rideshare drivers, multi-state TPA program",
+    summary="Independent contractor (1099) rideshare driver occ-acc program. 18,000 enrolled drivers, 6 states. Two open spinal injury claims. Carrier wants 14% rate increase.",
+    scenario="""You're underwriting a renewal on a group occupational accident program covering 1099 rideshare drivers contracted to a regional rideshare platform (not Uber/Lyft — a smaller competitor).
+
+Coverage structure:
+- AD&D: $250K
+- Accident medical: $100K, $0 deductible, primary coverage
+- Disability: 70% of declared gross earnings, max $1,500/wk, 26-week max benefit
+- No occupational disease coverage
+
+Enrollment:
+- ~18,000 active drivers across TX, CO, NV, AZ, NM, GA
+- Voluntary enrollment, ~74% take rate among active drivers
+- Premium funded by driver (per-trip surcharge)
+- Platform acts as group sponsor but does not contribute premium
+
+Loss experience (3 yr):
+- 412 claims total
+- $1.94M paid + reserves
+- 2 large open claims:
+  * Spinal injury, AZ, $185K incurred, MMI not yet reached
+  * Mild TBI, TX, $96K incurred, returning to part-time work
+- 1 closed fatal accident ($250K AD&D paid + $14K accident medical)
+- Frequency leading concern: TX claims up 31% YoY
+
+Carrier indications:
+- Incumbent: 14% rate increase, same benefits, same TPA
+- Markel: 8% increase, but with disability max reduced to 20 weeks
+- Berkley A&H: 11% increase, same structure, requires platform-funded loss-control budget ($50K/yr)
+
+Expiring premium: $2.4M total program premium (collected per-trip from drivers).
+
+Texas considerations:
+- TX Workers' Comp opt-out / non-subscriber statute (TX Labor Code §406.002) means workers comp is optional; many TX rideshare drivers have no other coverage available
+- Insurer received a regulatory inquiry from TDI in Q4 2025 about whether driver enrollment language is misleading""",
+    primary_specialty="occ-accident",
+    additional_specialties=["multi-jurisdictional"],
+    difficulty=4,
+    time_limit_minutes=45,
+    packet={
+        "Enrolled drivers": "~18,000 across 6 states",
+        "States": "TX, CO, NV, AZ, NM, GA",
+        "Benefits": "$250K AD&D / $100K AccMed / 70% disability, 26 wks",
+        "Take rate": "74%",
+        "3-yr losses": "$1.94M / 412 claims",
+        "Open severity": "AZ spinal $185K + TX TBI $96K",
+        "Expiring premium": "$2.4M (driver-funded)",
+        "Indications": "Incumbent +14% · Markel +8% (20-wk dis) · Berkley +11% + $50K LC",
+        "Regulatory": "TDI inquiry on enrollment language (Q4 2025)",
+    },
+    red_flag_options=[
+        "TX TDI regulatory inquiry on enrollment language",
+        "Open spinal injury claim (AZ)",
+        "TX frequency up 31% YoY",
+        "Driver-funded premium model (sustainability)",
+        "Markel's 20-week disability — coverage adequacy",
+        "No occupational disease coverage",
+        "1099 misclassification risk if platform involvement deepens",
+        "Take rate concentration / adverse selection",
+    ],
+    model_rationale="""This is a **quote with modifications** — Berkley A&H at +11% with the platform-funded loss-control budget is the right structural answer, but the TDI inquiry has to be cleared before binding.
+
+**Regulatory issue is gating.** A TDI inquiry on enrollment language isn't a technicality — Texas has been aggressive on rideshare-related regulation since 2023 (HB-100 / SB-200 ride-share-driver-classification debates). Until the inquiry is closed with no enforcement action, you're underwriting a program that may be required to change its disclosures, which directly affects enrollment volume and adverse selection. **Bind subject to TDI closure or a written safe-harbor from carrier counsel.**
+
+**Coverage adequacy.** $100K accident medical primary on a 1099 driver with no other coverage is the value proposition of the program; reducing benefits to win on price misses the point. **Markel's 20-week disability is a poor trade** for these drivers — most spinal/TBI claims need >20 weeks before MMI; an artificially short disability tail means the driver burns through, then sues the platform alleging misclassification + WC backfill, which puts the platform's de facto employer liability at issue. Reject Markel.
+
+**Loss trend.** $1.94M / 3 yr ≈ $647K/yr on $2.4M premium = ~27% pure loss ratio. With expense + risk margin a target combined ratio of 92–98% supports a renewal in the **$2.55M–$2.75M** band — incumbent at +14% ($2.74M) is at the top, Berkley at +11% ($2.66M) is mid-band and better-structured.
+
+**Texas frequency 31% YoY.** Look at this with two lenses:
+1. Pure frequency growth (more drivers, more trips) — normalize to claims/1000 trips.
+2. Severity development (TBI/spinal especially) — emerging or steady?
+The open TBI in TX at $96K is the canary. TX nuclear verdict trend in MVA cases has crept into rideshare; even if benefits here are sublimited, the *adverse selection feedback* (drivers know which markets pay) drives enrollment shifts.
+
+**Platform-funded loss control ($50K).** Berkley's requirement is good underwriting. Spend it on: defensive driving e-learning, fatigue management push notifications, after-hours auto-shutoff (12:30 AM cutoff in markets with elevated late-night frequency), and quarterly claim trend dashboard for the platform.
+
+**Sustainability.** Driver-funded premium model is fragile — when premium goes up, take rate drops; lower take rate = adverse selection (only injured-prone drivers enroll). Watch the 74% take rate at next renewal; if it drops below 65% the math gets ugly fast.
+
+**Recommendation.** Bind Berkley A&H at +11% ($2.66M target) subject to:
+1. TDI inquiry closed with no enforcement; carrier counsel safe-harbor letter on file.
+2. Loss control budget executed within 90 days with platform sign-off.
+3. Monthly TX-claim frequency dashboard, escalation at >40% YoY.
+4. No reduction in disability max (reject Markel structure).""",
+    model_premium_low=2550000,
+    model_premium_high=2750000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "TDI regulatory inquiry", "match": ["TDI", "Texas Department of Insurance", "enrollment", "regulatory", "inquiry", "disclosure"], "weight": 1},
+        {"label": "Coverage adequacy / disability tail", "match": ["disability", "26 weeks", "20 weeks", "MMI", "spinal", "TBI"], "weight": 1},
+        {"label": "Texas frequency / severity", "match": ["Texas", "TX", "31%", "frequency", "nuclear", "severity"], "weight": 1},
+        {"label": "1099 misclassification risk", "match": ["1099", "misclassification", "employer", "platform", "non-subscriber", "§406.002"], "weight": 1},
+        {"label": "Carrier comparison", "match": ["Berkley", "Markel", "incumbent", "$2.55", "$2.66", "$2.74", "rate"], "weight": 1},
+        {"label": "Loss control / platform-funded", "match": ["loss control", "$50K", "telematics", "fatigue", "defensive"], "weight": 1},
+        {"label": "Take rate / adverse selection", "match": ["take rate", "74%", "65%", "adverse selection", "voluntary"], "weight": 1},
+        {"label": "Path forward", "match": ["bind", "subject to", "approve", "Berkley"], "weight": 1},
+    ],
+    model_red_flags=[
+        "TX TDI regulatory inquiry on enrollment language",
+        "Open spinal injury claim (AZ)",
+        "TX frequency up 31% YoY",
+        "1099 misclassification risk if platform involvement deepens",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-009",
+    slug="occ-accident-volunteer-firefighter-program",
+    title="Occupational accident — 4,200-member rural volunteer firefighter program",
+    summary="Group occ-acc covering volunteer firefighters across 28 rural fire districts in TX & OK. State-funded sponsor. Severity creep from training injuries.",
+    scenario="""Renewal submission for a multi-district volunteer firefighter occupational accident program. The sponsor is a state-administered association (analogous to TX TCFP/SFFMA).
+
+Coverage:
+- AD&D: $400K per member
+- Accident medical: $150K, primary
+- Disability: 60% of state-imputed weekly wage ($800/wk cap), 52-week max
+- Heart/lung presumption: $25K supplemental benefit (statutory in some districts)
+- Critical illness: $10K lump sum
+
+Population:
+- 4,200 enrolled volunteer firefighters across 28 rural fire districts
+- ~3,100 in TX, ~1,100 in OK
+- Sponsor pays 100% of premium from state-allocated firefighter relief funds
+
+Loss experience (5 yr):
+- 187 claims total
+- $1.68M paid + reserves
+- 1 fatal (heart attack post-training, line-of-duty determined, $400K AD&D)
+- 4 large opens:
+  * Fall from ladder — fractured pelvis, $112K (post-MMI rehab)
+  * Heat stress + AMI — $87K (heart presumption triggered)
+  * Hearing loss — $34K
+  * Smoke inhalation aftermath — $58K
+- Training-related claims up 22% YoY
+- Heart/lung presumption claims up 40% over 3 years
+
+Carrier indications:
+- Incumbent: 19% rate increase, same benefits
+- Old Republic: flat renewal, but excludes heart/lung presumption supplement
+- Liberty Mutual: 8% increase, requires NFPA 1582 medical clearance documentation for all enrolled members within 24 mo
+
+Expiring premium: $1.1M
+Sponsor budget constraint: cannot exceed $1.25M without legislative approval""",
+    primary_specialty="occ-accident",
+    additional_specialties=["public-entity", "multi-jurisdictional"],
+    difficulty=4,
+    time_limit_minutes=45,
+    packet={
+        "Enrolled members": "4,200 (3,100 TX / 1,100 OK)",
+        "Districts": "28 rural",
+        "Benefits": "$400K AD&D / $150K AccMed / disability $800/wk · heart-lung $25K · CI $10K",
+        "Funding": "Sponsor 100% via state relief funds",
+        "5-yr losses": "$1.68M / 187 claims",
+        "Open severity": "$112K pelvis + $87K AMI + $58K smoke + $34K hearing",
+        "Heart/lung claims": "+40% over 3 yr",
+        "Expiring premium": "$1.1M",
+        "Budget ceiling": "$1.25M (legislative)",
+        "Indications": "Incumbent +19% · Old Rep flat (no H/L) · Liberty +8% (NFPA 1582 req)",
+    },
+    red_flag_options=[
+        "Heart/lung presumption frequency trend",
+        "Sponsor budget ceiling ($1.25M)",
+        "Old Republic excluding heart/lung",
+        "Training injury frequency up 22% YoY",
+        "NFPA 1582 medical clearance gap",
+        "Volunteer recruitment / aging population",
+        "Cross-state jurisdictional benefits (TX vs OK)",
+        "Statutory heart-lung supplement variability",
+    ],
+    model_rationale="""This is an **approve with modifications** — Liberty Mutual at +8% with the NFPA 1582 medical clearance requirement is the correct call, but the heart/lung presumption coverage cannot be dropped.
+
+**Heart/lung presumption is non-negotiable.** Both Texas (Govt Code §607.054) and Oklahoma (11 OS §49-111) have statutory presumptions of line-of-duty for cardiovascular and certain cancers among firefighters meeting service criteria. **Dropping the supplement (Old Republic's offer) shifts cost from the carrier to the local fire district's general fund**, which under TX/OK firefighter relief structure means the sponsor still owns the claim — just less efficiently. Reject Old Republic.
+
+**Budget ceiling drives structure.** Sponsor cap is $1.25M (+13.6%). Liberty at +8% lands ~$1.19M, fits inside the ceiling. Incumbent at +19% ($1.31M) requires legislative approval — possible but takes 6–9 months and is a political risk in an election year. **Liberty is the only indication that fits budget without legislative friction.**
+
+**NFPA 1582 requirement is good underwriting.** NFPA 1582 (medical requirements for fire department members) clearance ensures enrolled members are medically fit for duty — directly addresses the rising heart/lung claim trend. The 24-month rollout window is realistic for volunteer fire districts; required exams cost $250–$400/member, so ~$1M aggregate one-time cost spread over 24 months at the district level. **Confirm whether the state relief fund or districts pay; if districts pay, this is a hidden cost that needs to be on the table.**
+
+**Training injury trend.** +22% YoY is meaningful. Possible drivers: aging volunteer demographic, increased live-fire training mandates, equipment changes (newer SCBA weight profiles). Recommend the sponsor commission a training-injury analysis quarterly with the carrier's loss-control team. Cheap to do, high ROI.
+
+**Jurisdictional asymmetry.** TX heart-lung presumption is broader than OK's (OK requires more specific service criteria). Carriers writing both should either price differently or accept that TX is the riskier book. None of the three indications appears to be priced asymmetrically — that's a quoting weakness you can exploit later if needed.
+
+**Pricing band.** $1.18M–$1.30M is defensible. Liberty at $1.19M is at the bottom of the band — sustainable if NFPA 1582 lands.
+
+**Recommendation.** Bind Liberty Mutual at +8% subject to:
+1. NFPA 1582 implementation plan submitted within 60 days, fully rolled out within 24 mo.
+2. Heart/lung supplement retained at $25K (no reduction).
+3. Quarterly loss-control review on training injuries; threshold for non-renewal review at >30% YoY frequency growth.
+4. Confirm who funds NFPA 1582 exams — sponsor relief fund or districts — before binding.""",
+    model_premium_low=1180000,
+    model_premium_high=1300000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "Heart/lung presumption (statutory)", "match": ["heart", "lung", "presumption", "§607", "§49-111", "cardiovascular", "cancer"], "weight": 1},
+        {"label": "Budget ceiling / legislative", "match": ["$1.25M", "$1.19M", "budget", "ceiling", "legislative", "relief fund"], "weight": 1},
+        {"label": "NFPA 1582 medical clearance", "match": ["NFPA 1582", "medical clearance", "fit for duty", "exam"], "weight": 1},
+        {"label": "Training injury trend", "match": ["training", "22%", "live-fire", "SCBA", "frequency"], "weight": 1},
+        {"label": "TX vs OK jurisdictional asymmetry", "match": ["Texas", "Oklahoma", "presumption", "jurisdiction", "asymmetric"], "weight": 1},
+        {"label": "Carrier comparison", "match": ["Liberty", "Old Republic", "incumbent", "+8%", "+19%", "rate"], "weight": 1},
+        {"label": "Volunteer demographic", "match": ["aging", "volunteer", "recruitment", "demographic"], "weight": 1},
+        {"label": "Path forward", "match": ["bind", "subject to", "approve", "Liberty"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Heart/lung presumption frequency trend",
+        "Sponsor budget ceiling ($1.25M)",
+        "Old Republic excluding heart/lung",
+        "NFPA 1582 medical clearance gap",
+    ],
+))
+
+
+# === BATCH 2: Commercial Auto + Trucking + Cargo + Marine (8 cases) =========
+
+cases.append(Case(
+    code="DOJO-2026-010",
+    slug="commercial-auto-last-mile-telematics",
+    title="Commercial auto — last-mile EV fleet, post-telematics rollout",
+    summary="180-unit EV cargo van fleet doing last-mile for major e-commerce client. Telematics in place 14 mo. Two large MVA claims, broker shopping primary at +22%.",
+    scenario="""Submission for primary commercial auto on a regional last-mile carrier.
+
+Operations:
+- 180 owned EV cargo vans (Rivian EDV-700, Ford E-Transit mix)
+- Last-mile delivery, contracted to a major national e-commerce platform
+- 22M miles/yr
+- 220 W-2 drivers, all CDL-not-required
+- 3 hubs: Atlanta, Charlotte, Nashville
+- Geofenced delivery zones — 92% of routes within 35 miles of hub
+
+Coverage requested: $1M CSL business auto, $1M garagekeepers, $4M umbrella
+
+Loss history (3 yr):
+- 38 auto claims total
+- $1.42M incurred ground-up
+- 2 large: pedestrian struck in residential zone ($420K open), rear-end fatality at intersection ($580K paid + closed)
+- Frequency: 1.73 claims per million miles (industry benchmark ~2.1)
+- Severity: $37.4K avg (industry ~$24K — driven by 2 large)
+
+Telematics:
+- Lytx DriveCam fleet-wide, installed 14 months ago
+- Coachable events down 41% since deployment
+- Hard-braking incidents down 28%
+- Cab-cam not enabled (driver privacy MOU with Teamsters local)
+
+Renewal indications:
+- Incumbent (Progressive Commercial): $1.62M (+22% over expiring $1.33M)
+- Berkshire GUARD: $1.48M (+11%), requires cab-cam enabled within 12 mo
+- Nationwide E&S: $1.71M, no telematics credit reflected
+
+Other:
+- Driver mod equivalent (carrier internal): 1.04
+- Battery weight on Rivian EDV is 24% heavier than ICE Transit van — pedestrian impact severity higher per HLDI 2024 study""",
+    primary_specialty="commercial-auto",
+    additional_specialties=["transportation"],
+    difficulty=4,
+    time_limit_minutes=50,
+    packet={
+        "Fleet": "180 EV cargo vans (Rivian EDV / Ford E-Transit)",
+        "Annual miles": "22M",
+        "Drivers": "220 W-2",
+        "Frequency": "1.73 claims/M miles (industry 2.1)",
+        "Severity": "$37.4K avg (industry $24K)",
+        "Large opens": "$420K pedestrian + $580K fatality (closed)",
+        "Telematics": "Lytx DriveCam 14 mo · cab-cam disabled (Teamsters MOU)",
+        "Indications": "Progressive +22% · GUARD +11% (cab-cam req) · Nationwide $1.71M",
+    },
+    red_flag_options=[
+        "EV pedestrian impact severity (HLDI data)",
+        "Cab-cam disabled per labor MOU",
+        "Pending pedestrian claim ($420K)",
+        "Severity above industry benchmark",
+        "Single-customer revenue dependence",
+        "Battery fire — total-loss severity unmodeled",
+        "Geofenced ≠ dense residential traffic (pedestrian risk)",
+        "Telematics not yet reflected in pricing by all markets",
+    ],
+    model_rationale="""This is a **quote with modifications** — Berkshire GUARD at +11% is the right answer if the cab-cam issue can be solved without breaking the Teamsters MOU.
+
+**Telematics is the story.** Lytx DriveCam fleet-wide for 14 months is producing the right behavioral data — coachable events -41%, hard-braking -28%. **Frequency is already below industry (1.73 vs 2.1).** That's the win. Severity ($37.4K vs $24K) is the problem, but it's driven by two specific large losses, not a pattern.
+
+**Cab-cam stalemate.** GUARD's requirement is reasonable underwriting — cab-cam has been the single biggest defense-cost lever in nuclear-verdict commercial auto cases since 2023. **The Teamsters MOU is the blocker, not the technology.** Negotiate:
+- Cab-cam triggered only on Lytx event-detection (g-force, lane departure, following distance) — not continuous recording. Most labor groups accept event-triggered cab-cam; continuous recording is the dealbreaker.
+- 30-day video retention, then automatic deletion unless flagged.
+- Driver access to own footage on request.
+This structure has cleared with most Teamsters locals nationally. Build the 12-month rollout into the MOU re-open at next contract.
+
+**EV pedestrian severity.** HLDI 2024 data shows EVs (heavier curb weight, instant torque, quieter operation) drive ~14% higher pedestrian-impact severity than ICE equivalents. **Underwriting this honestly = sub-limit pedestrian or load up rate; ignoring it = adverse development.** No carrier has yet baked this into commercial auto rate fully — but Nationwide's $1.71M number suggests they're starting to. Worth noting in the renewal narrative.
+
+**Pricing band.** On 22M miles + frequency below industry + severity above, the math is:
+- Pure premium per mile: ~$0.065 indicated (loss + LAE)
+- Loaded with expense + risk margin: defensible band **$1.42M–$1.65M**
+- GUARD $1.48M at the lower-middle of band — fair.
+- Progressive $1.62M is at the upper edge — they're pricing in continued severity.
+- Nationwide $1.71M is outside the band — pass.
+
+**Open pedestrian claim ($420K).** Get the demand history. Pedestrian struck in residential zone with EV vehicle is a high-severity profile in plaintiff-friendly jurisdictions; ALAE alone could chew $80–120K before mediation. Confirm reserve adequacy.
+
+**Recommendation.** Bind GUARD at $1.48M subject to:
+1. Event-triggered cab-cam pilot at one hub within 6 months; full rollout 12 mo (negotiate w/ Teamsters).
+2. Pedestrian-corridor route review at all three hubs (Atlanta + Charlotte mid-residential routes are the risk zones).
+3. Loss-control monthly call with carrier through first 6 months.
+4. Re-rate at audit if open pedestrian claim closes >$600K.""",
+    model_premium_low=1420000,
+    model_premium_high=1650000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "Telematics impact (Lytx)", "match": ["Lytx", "DriveCam", "telematics", "coachable", "hard-braking", "41%", "28%"], "weight": 1},
+        {"label": "Cab-cam / labor MOU", "match": ["cab-cam", "Teamsters", "MOU", "event-triggered", "continuous"], "weight": 1},
+        {"label": "EV pedestrian severity", "match": ["EV", "pedestrian", "HLDI", "weight", "severity", "torque"], "weight": 1},
+        {"label": "Frequency vs industry", "match": ["1.73", "2.1", "frequency", "per million", "benchmark"], "weight": 1},
+        {"label": "Severity profile", "match": ["$37.4", "$24K", "severity", "large losses"], "weight": 1},
+        {"label": "Pricing band", "match": ["$1.42", "$1.48", "$1.62", "$1.65", "$1.71", "band"], "weight": 1},
+        {"label": "Open pedestrian claim", "match": ["pedestrian", "$420K", "residential", "demand", "ALAE"], "weight": 1},
+        {"label": "Path forward", "match": ["GUARD", "bind", "subject to", "approve", "recommend"], "weight": 1},
+    ],
+    model_red_flags=[
+        "EV pedestrian impact severity (HLDI data)",
+        "Cab-cam disabled per labor MOU",
+        "Pending pedestrian claim ($420K)",
+        "Single-customer revenue dependence",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-011",
+    slug="commercial-auto-rideshare-tnc-fleet",
+    title="Commercial auto — TNC fleet vehicle program, 480 owned-asset rideshare",
+    summary="TNC-affiliated fleet leasing rideshare vehicles to gig drivers. 480 vehicles in 4 metros. Period 1/2/3 attachment confusion. Quote primary commercial auto?",
+    scenario="""A TNC-affiliated fleet operator owns 480 vehicles leased to rideshare drivers (Uber, Lyft, DoorDash). Drivers pay weekly lease; fleet retains title.
+
+Coverage requested:
+- Primary commercial auto, $1M CSL, all 480 vehicles
+- Garagekeepers $1M
+- Hired/non-owned auto $1M
+
+Operations:
+- 4 metro markets: Houston, Phoenix, Atlanta, Las Vegas
+- ~3,200 weekly active driver-renters (high churn)
+- Avg vehicle utilization 88 hrs/wk per car
+- Avg vehicle lease term 14 wks (median 9 wks)
+
+Critical coverage question:
+- Period 1 (app on, no passenger): primary state law usually requires the *driver's* personal auto, with TNC platform contingent
+- Period 2/3 (en route + with passenger): TNC platform's $1M auto is primary
+- **The fleet's commercial auto policy is supposed to sit underneath all of this for "off-platform" driving (driver running errands, etc.) and as gap coverage for Period 1 if driver's personal auto won't respond**
+
+Loss experience (2 yr — short program):
+- 91 claims total
+- $1.34M incurred
+- 1 large: pedestrian struck during Period 1 in TX, driver's personal auto denied coverage citing livery exclusion, $185K reserve
+- 11 minor parking-lot / vandalism claims at fleet lots
+- Theft losses: $86K (5 vehicles, recovered/totaled mix)
+
+Indications:
+- AmTrust: $2.95M, requires GPS monitoring + remote vehicle disable capability
+- Hallmark: $3.20M, no extra requirements
+- Wesco: declined ("livery / TNC outside appetite")
+
+Other:
+- Texas livery exclusion (TX Ins Code §1952.0545 — personal auto exclusion for livery use) is widely enforced
+- Houston has the highest auto theft rate of the four metros
+- 18% of fleet has after-market dash cams""",
+    primary_specialty="commercial-auto",
+    additional_specialties=["multi-jurisdictional"],
+    difficulty=4,
+    time_limit_minutes=45,
+    packet={
+        "Vehicles": "480 in 4 metros",
+        "Weekly active drivers": "~3,200",
+        "Lease term": "median 9 wks",
+        "2-yr losses": "$1.34M / 91 claims",
+        "Open severity": "$185K pedestrian (TX, livery denial)",
+        "Indications": "AmTrust $2.95M (GPS+disable) · Hallmark $3.20M · Wesco declined",
+        "Theft": "$86K / 5 vehicles",
+        "Dash cams": "18% fleet",
+    },
+    red_flag_options=[
+        "Period 1/2/3 coverage gap (livery exclusion)",
+        "Houston theft severity",
+        "High driver churn (median 9-wk lease)",
+        "Pedestrian struck — Period 1 denial in TX",
+        "Limited dash cam penetration",
+        "TNC platform coverage stacking ambiguity",
+        "Multi-state livery statute variability",
+        "Vehicle disable capability not in place",
+    ],
+    model_rationale="""This is a **quote with modifications** — AmTrust at $2.95M with the GPS + remote disable requirement is the structurally correct answer, but the Period 1 gap question needs surgical attention before binding.
+
+**Period 1/2/3 is the central underwriting question.** The fleet's commercial auto policy is sitting underneath two layers (driver's personal auto + TNC platform coverage). In Texas, the personal auto layer reliably denies under TX Ins Code §1952.0545 livery exclusion — meaning **the fleet's primary commercial auto is effectively first-dollar coverage during Period 1.** That's why the $185K reserve exists on the pedestrian claim. AmTrust and Hallmark seem to be pricing this correctly; Wesco's decline is honest.
+
+**Policy form needs to address:**
+- Period 1 primary on a non-livery-excluded basis (specifically endorsed for TNC use)
+- Off-platform use (errands, personal trips) — primary if driver has no personal auto in force, contingent if they do
+- Theft and vandalism on parked vehicles — high-value coverage given Houston exposure
+- Garagekeepers for fleet lots
+- Hired/non-owned auto wrap for fleet staff using rentals during ops
+
+**GPS + remote disable.** AmTrust's requirement is good risk-management for two reasons:
+1. Theft recovery — $86K in 2 yrs across 5 vehicles is real and likely to grow. Geotab/Spireon-class GPS + immobilizer kits cost $180–$240/vehicle plus monthly fees, payback in ~14 months at current theft loss rate.
+2. Off-platform driving detection — driver leasing a vehicle "for rideshare" but using it for unrelated trips is the gray-area exposure. Geofencing + driver-app integration can flag this.
+
+**Driver churn.** Median 9-wk lease is brutally short. The risk: underwriting a portfolio of drivers you can't vet because they cycle in/out before any tenure data builds. **Recommend a driver-onboarding MVR + 90-day driving-event review subjectivity.** Fleet operator should be running MVRs at intake, but verify.
+
+**Pricing band.** For 480 vehicles × ~$5,500–$6,800 per car per year on a TNC livery profile, **$2.65M–$3.25M** is defensible:
+- AmTrust $2.95M is mid-band, with the GPS/disable saving structural risk.
+- Hallmark $3.20M is at upper end with no risk-controls layered in.
+- Wesco's decline tells you the bottom of the market is real.
+
+**Texas-specific exposure.** Houston theft severity + Texas livery exclusion + Texas plaintiff-friendly verdict trend = recommend the policy carry $1M / $1M / $1M (BI per person / occ / PD) at minimum, not split limits, to avoid policy-limits stacking arguments in catastrophic injury cases.
+
+**Recommendation.** Bind AmTrust at $2.95M subject to:
+1. GPS + remote disable installed fleet-wide within 90 days (provide vendor proof of work).
+2. Driver intake MVR + 90-day driving-event review documented.
+3. Policy form Period 1 / off-platform endorsement reviewed by carrier coverage counsel and shared with fleet.
+4. Quarterly theft-trend review; Houston-specific loss control plan.""",
+    model_premium_low=2650000,
+    model_premium_high=3250000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "Period 1/2/3 framework", "match": ["Period 1", "Period 2", "Period 3", "livery", "TNC", "platform"], "weight": 1},
+        {"label": "Texas livery exclusion", "match": ["Texas", "§1952", "livery exclusion", "personal auto denial"], "weight": 1},
+        {"label": "GPS / remote disable", "match": ["GPS", "remote disable", "immobilizer", "Geotab", "tracking"], "weight": 1},
+        {"label": "Off-platform exposure", "match": ["off-platform", "errand", "personal trip", "gray area"], "weight": 1},
+        {"label": "Driver churn / vetting", "match": ["churn", "9 weeks", "MVR", "intake", "tenure"], "weight": 1},
+        {"label": "Theft / Houston severity", "match": ["theft", "Houston", "$86K", "recovery"], "weight": 1},
+        {"label": "Pricing band", "match": ["$2.65", "$2.95", "$3.20", "$3.25", "band"], "weight": 1},
+        {"label": "Path forward", "match": ["AmTrust", "bind", "subject to", "approve"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Period 1/2/3 coverage gap (livery exclusion)",
+        "Houston theft severity",
+        "High driver churn (median 9-wk lease)",
+        "Vehicle disable capability not in place",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-012",
+    slug="fleet-trucking-reefer-produce",
+    title="Fleet trucking — 240-truck refrigerated produce hauler",
+    summary="Reefer fleet hauling produce from CA Central Valley to Northeast markets. Two recent cargo claims for spoilage + a reefer breakdown. Primary auto + MTC renewal.",
+    scenario="""Renewal submission for a refrigerated trucking carrier.
+
+Operations:
+- 240 owned Class-8 tractors with reefer trailers (avg trailer age 4 yrs)
+- 380 employed drivers (W-2)
+- Routes: CA Central Valley → DFW, ATL, Chicago, NJ
+- 32M miles/yr
+- Annual revenue: $94M
+- DOT BASIC scores: Unsafe Driving 38, HOS 45, Crash 22 — all below alert thresholds
+
+Coverage requested:
+- $1M primary auto (CSL)
+- $250K Motor Truck Cargo (MTC) including spoilage / refrigeration breakdown
+- $5M auto liability umbrella
+- Trailer interchange $150K
+
+Loss history (4 yr):
+- 78 auto claims, $4.2M incurred
+- 2 large auto: jackknife on I-40 ($1.4M closed), rear-end fatality I-95 ($820K open)
+- 9 cargo claims:
+  * 3 reefer breakdown (mango shipment $52K, blueberries $68K, lettuce $34K)
+  * 4 partial losses (cooler temp drift)
+  * 2 theft — California parking lot, $42K total
+- MTC loss ratio: 51% over 4 yr
+
+Renewal indications:
+- Berkshire (Northland): primary auto $4.2M (+12%); MTC $185K (+8%); umbrella $1.85M (+15%)
+- Great West: primary auto $4.45M; MTC $172K; umbrella $1.92M
+- New Hampshire (E&S): primary auto $4.6M; MTC declined ("reefer/produce outside appetite")
+
+Equipment:
+- 84% of fleet equipped with Carrier Transicold reefer telemetry
+- Sentry Insurance loss-control survey Q3 2024 flagged 14% of reefers without ATP (continuous temperature recording) sensors""",
+    primary_specialty="transportation",
+    additional_specialties=["commercial-auto", "marine"],
+    difficulty=4,
+    time_limit_minutes=55,
+    packet={
+        "Tractors / drivers": "240 / 380 W-2",
+        "Annual miles": "32M",
+        "Revenue": "$94M",
+        "DOT BASICs": "UD 38 · HOS 45 · Crash 22",
+        "4-yr losses": "$4.2M auto / 9 cargo claims",
+        "Open severity": "$820K I-95 fatality",
+        "Reefer telemetry": "84% fleet",
+        "ATP sensors": "14% of reefers missing",
+        "Indications": "Berkshire $4.2M+$185K+$1.85M · Great West $4.45M+$172K+$1.92M · NH declined MTC",
+    },
+    red_flag_options=[
+        "Open I-95 fatality reserve",
+        "ATP sensor gap (14% of reefers)",
+        "California parking-lot theft pattern",
+        "Single-commodity concentration (produce)",
+        "Reefer breakdown frequency (3 in 4 yr)",
+        "Plaintiff-friendly venues on Northeast routes",
+        "MTC market shedding capacity",
+        "DOT HOS BASIC trending",
+    ],
+    model_rationale="""This is an **approve as quoted** for the Berkshire/Northland package — they're priced fairly and the MTC market shedding (NH declining) makes Berkshire's continued participation worth a premium.
+
+**Auto.** $4.2M at +12% on $94M revenue is ~4.5% of revenue. Industry benchmark for reefer hauler with this loss profile and venue mix (CA/AZ/TX → IL/NY/NJ) is **3.8%–5.0% of revenue** — Berkshire sits at 4.5%, right in the middle. Defensible. Great West at $4.45M (+18% effectively) is at the top; New Hampshire at $4.6M is outside.
+
+**MTC.** $185K is the more interesting number. Loss ratio of 51% over 4 years with 3 reefer breakdowns + 2 thefts justifies pricing at the upper end of the historical band. **The ATP-sensor gap (14% of reefers without continuous temperature recording) is the underwriting flag** — without ATP recording, every spoilage claim becomes a "did the temperature actually drift?" coverage dispute. ATP retrofit cost is $1,500–$2,200/trailer; the 34 trailers without ATP would cost ~$60K to retrofit. Payback: one avoided coverage dispute on a $50K+ claim.
+
+**I-95 fatality.** $820K reserve on a fatality is light unless the case is in litigation favorable to defense. Get the demand letter and reserve worksheet — if this is heading to $1.2M+, it could blow through the $1M primary into the umbrella, and the umbrella renewal at +15% suggests Berkshire is already pricing that in. Confirm.
+
+**California parking-lot theft.** $42K across 2 claims — pattern, not a single event. Standard cargo theft mitigation:
+- Convoy with high-value loads (mango/berry shipments target loads)
+- No drops at unsecured yards in I-5 corridor
+- Air-cuff lock + king-pin lock dual-system
+- CargoNet enrollment + real-time geofence alerts
+This is loss-control table-stakes; lock it in.
+
+**Single-commodity exposure (produce).** Concentrating in produce makes you cyclical (avocado supply shocks, freeze damage to Florida citrus driving rate inflation) and politically exposed (USDA Perishable Agricultural Commodities Act / PACA — additional rights for shippers in claim disputes). PACA-protected commodities require extra care on the coverage form; confirm MTC form responds to PACA-rejected loads.
+
+**Pricing band (total program).**
+- Auto + MTC + umbrella: $5.95M–$6.50M defensible.
+- Berkshire $4.2M + $185K + $1.85M = $6.235M — at the midpoint. Bind.
+- Great West $4.45M + $172K + $1.92M = $6.54M — at the top edge.
+
+**Recommendation.** Bind Berkshire/Northland package at $6.235M subject to:
+1. ATP retrofit on 34 trailers within 90 days.
+2. Cargo theft mitigation protocol formalized; CargoNet enrollment.
+3. PACA-rejected-load coverage language confirmed in MTC form.
+4. Quarterly claims call on the I-95 fatality file.""",
+    model_premium_low=595000000 // 100,
+    model_premium_high=650000000 // 100,
+    model_recommendation="approve",
+    key_factors=[
+        {"label": "DOT BASIC analysis", "match": ["BASIC", "DOT", "HOS", "Unsafe Driving", "Crash"], "weight": 1},
+        {"label": "Auto pricing as % revenue", "match": ["4.5%", "revenue", "$94M", "$4.2M", "benchmark"], "weight": 1},
+        {"label": "Reefer / ATP sensor gap", "match": ["ATP", "reefer", "temperature", "Carrier Transicold", "continuous"], "weight": 1},
+        {"label": "I-95 fatality reserve", "match": ["I-95", "fatality", "$820K", "$1M", "umbrella", "demand"], "weight": 1},
+        {"label": "Cargo theft / CargoNet", "match": ["theft", "CargoNet", "California", "parking lot", "convoy"], "weight": 1},
+        {"label": "PACA / produce regulation", "match": ["PACA", "produce", "perishable", "commodity"], "weight": 1},
+        {"label": "MTC market capacity", "match": ["MTC", "Motor Truck Cargo", "appetite", "decline"], "weight": 1},
+        {"label": "Path forward", "match": ["Berkshire", "Northland", "bind", "approve", "subject to"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Open I-95 fatality reserve",
+        "ATP sensor gap (14% of reefers)",
+        "California parking-lot theft pattern",
+        "Single-commodity concentration (produce)",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-013",
+    slug="fleet-trucking-flatbed-steel",
+    title="Fleet trucking — flatbed steel hauler, OS/OW exposure, Midwest",
+    summary="86-truck flatbed carrier specializing in oversize/overweight steel. Securement-failure claim + permit-routing issue. Renew or restructure?",
+    scenario="""$36M revenue flatbed trucking carrier specializing in oversize/overweight (OS/OW) steel coil, beam, and plate transport.
+
+Operations:
+- 86 tractors + 110 flatbed trailers (Conestoga + standard flatbed mix)
+- 130 W-2 drivers, all with H&I (hazardous & oversize) endorsements
+- 5-state corridor: IN, IL, OH, KY, MI
+- 12M miles/yr
+- Avg load: 78,000 lbs (max permitted ~92,000 lbs with state OS/OW permits)
+
+Coverage requested:
+- $1M primary auto
+- $2M MTC including securement coverage
+- $5M umbrella
+- Riggers liability $250K (loading/unloading at customer yards)
+
+Loss history (5 yr):
+- 41 auto claims, $2.8M
+- Big one: 2024 securement failure — steel coil rolled off trailer on I-70 near Indianapolis, killed 1, injured 2 ($2.9M demand, currently in mediation; reserves at $2.2M — primary tapped, umbrella threatened)
+- 6 cargo claims (load shifts + minor at-fault unloading damage), $310K
+- 1 permit violation: routed 14'2" load under a 14'0" overpass in Ohio, $185K bridge damage repair claim by state DOT (paid)
+
+Renewal:
+- Incumbent: declining renewal citing the I-70 securement case
+- Submission going to 5 markets, 3 indications back:
+  * Northland: primary $2.6M, MTC $145K, umbrella declined
+  * Canal Insurance: primary $2.85M, MTC $158K, umbrella $315K
+  * Hallmark E&S: primary $3.1M, MTC $172K, umbrella $385K with $2M attachment
+
+DOT inspection profile:
+- Vehicle BASIC: 41 (alert threshold 80)
+- Driver BASIC: 28
+- HOS: 31
+- Crash: 67 (above the 65 alert threshold — driven mostly by the I-70 incident)""",
+    primary_specialty="transportation",
+    additional_specialties=["commercial-auto"],
+    difficulty=5,
+    time_limit_minutes=55,
+    packet={
+        "Tractors / drivers": "86 / 130 W-2 (all H&I endorsed)",
+        "Annual miles": "12M",
+        "Revenue": "$36M",
+        "5-yr losses": "$2.8M auto / $310K cargo / $185K permit damage",
+        "Open severity": "I-70 securement failure — $2.2M reserve, $2.9M demand",
+        "Crash BASIC": "67 (above 65 alert)",
+        "Incumbent": "Non-renewing",
+        "Indications": "Northland $2.6M+$145K (no umb) · Canal $2.85M+$158K+$315K · Hallmark $3.1M+$172K+$385K@$2M",
+    },
+    red_flag_options=[
+        "I-70 securement failure (open)",
+        "Crash BASIC above alert threshold",
+        "Permit-routing violation history",
+        "Umbrella market evaporation",
+        "Specialized OS/OW class — capacity thin",
+        "Securement training depth unknown",
+        "Plaintiff-friendly Indiana venue",
+        "Riggers liability coverage gap",
+    ],
+    model_rationale="""This is a **decline as quoted** — none of the three indications creates a structurally viable program at acceptable risk-to-insured. Recommend restructure + remarket with conditions, or place the auto at Hallmark + separately structured umbrella.
+
+**The I-70 securement claim dominates everything.** $2.9M demand against $2.2M reserves on a fatality + 2 injuries = primary fully tapped + umbrella will respond. Until this is resolved (mediation pending), the umbrella market is going to be exactly what's reflected here: Northland declining, Canal at low limit ($315K — unusable), Hallmark at $385K with $2M attachment (which is *above* the primary, leaving the gap $1M to $2M uncovered).
+
+**Coverage gap analysis.** Hallmark structure: $1M primary + $1M gap + $385K excess of $2M = exposed in $1M–$2M layer. **That gap is the umbrella market's way of saying "we don't trust the next claim won't blow through primary."** Three options:
+1. **Buy a buffer layer $1M xs $1M.** Markets: Lloyd's (Apollo, Tokio Marine Kiln), Old Republic on a non-conforming basis. Cost: $90K–$150K. Closes the gap.
+2. **Increase primary to $2M.** Likely +35–50% on primary premium; underwriting risk: most flatbed primary markets cap at $1M.
+3. **Accept the gap and self-insure.** Only viable if the insured has $1M+ liquid; they don't (revenue $36M, no captive disclosed).
+
+**Crash BASIC 67.** Above the 65 alert threshold. Carriers will see this in SaferStat. The I-70 incident drove this; one more crash event in the 24-month rolling window pushes them above 80, which is a hard non-renewal trigger for most markets. **Drive freight-broker / shipper-side BASIC monitoring response: lose loads if Crash hits 70+.**
+
+**Operational findings.**
+- Securement training: industry standard is CVSA-aligned, monthly recurrence training. Confirm.
+- Pre-trip protocol: post-incident audit common at this scale; if not done, fund it.
+- Permit-routing: the 14'2" bridge strike in Ohio is the leading indicator nobody's talking about. Recommend route-permit software (Tidewater Permit, Trimble) and a permit specialist on staff or contracted. Cost: $40–60K/yr; saves $185K+ events.
+
+**Pricing band (if restructured).**
+- Primary $2.85M–$3.10M (Canal–Hallmark range).
+- MTC $158K–$172K.
+- Buffer + umbrella structured separately: $300K–$500K total.
+- Total **$3.31M–$3.77M** defensible if losses contained.
+
+**Recommendation.** Decline as presented. Restructure:
+1. Place primary auto with Hallmark at $3.1M.
+2. MTC at $172K (Hallmark).
+3. Source $1M xs $1M buffer layer at Lloyd's (target $110K–$130K).
+4. Umbrella excess of $2M at Hallmark $385K.
+5. Subjectivities: route-permit software live within 60 days; securement training audit; CVSA inspection sign-off on all rigging within 90 days.
+6. Re-evaluate at month 6 — if I-70 mediation closes <$2M, the umbrella market opens back up at renewal.
+
+Total estimated program: ~$3.79M. Tight but bindable.""",
+    model_premium_low=3300000,
+    model_premium_high=3800000,
+    model_recommendation="needs_more_info",
+    key_factors=[
+        {"label": "I-70 securement claim impact", "match": ["I-70", "securement", "fatality", "$2.2M", "$2.9M", "mediation"], "weight": 1},
+        {"label": "Umbrella structuring / coverage gap", "match": ["umbrella", "buffer", "gap", "attachment", "$2M", "Lloyd"], "weight": 1},
+        {"label": "Crash BASIC threshold", "match": ["BASIC", "Crash", "67", "65", "alert", "SaferStat"], "weight": 1},
+        {"label": "Permit routing / OS/OW", "match": ["permit", "routing", "OS/OW", "oversize", "bridge", "14'"], "weight": 1},
+        {"label": "Securement training depth", "match": ["securement", "CVSA", "training", "pre-trip"], "weight": 1},
+        {"label": "Riggers liability", "match": ["riggers", "loading", "unloading", "yard"], "weight": 1},
+        {"label": "Carrier comparison", "match": ["Northland", "Canal", "Hallmark", "decline", "indications"], "weight": 1},
+        {"label": "Path forward / restructure", "match": ["restructure", "remarket", "subjectivity", "decline", "needs"], "weight": 1},
+    ],
+    model_red_flags=[
+        "I-70 securement failure (open)",
+        "Crash BASIC above alert threshold",
+        "Permit-routing violation history",
+        "Umbrella market evaporation",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-014",
+    slug="cargo-air-freight-pharma",
+    title="Cargo — temperature-sensitive pharma air freight, JFK ↔ FRA",
+    summary="Pharma logistics specialist moving GMP-grade biologics on transatlantic flights. Single $4.8M loss last year (temp deviation). Renew the open-cargo policy?",
+    scenario="""Renewal submission for an open-cargo (Annual Transit Open Cover) policy on a pharma logistics specialist.
+
+Operations:
+- Annual cargo value moved: $480M
+- Commodities: GMP biologics (vaccines, monoclonal antibodies, ATMPs/cell therapies)
+- Routes: JFK ↔ FRA, JFK ↔ ZRH, JFK ↔ NRT (87% of value)
+- Mode: commercial belly cargo on Lufthansa, KLM, Singapore Airlines; some chartered freighter
+- Packaging: passive cooler boxes (Va-Q-tec, Pelican BioThermal) + active reefer ULDs (Envirotainer RAP/RKN)
+
+Coverage requested:
+- All-risks open cargo (Institute Cargo Clauses A)
+- Strikes/Riots/Civil Commotion endorsement
+- War risk
+- Temperature deviation
+- Loss of refrigeration
+
+Loss history (3 yr):
+- $4.8M loss event 2024: Envirotainer RAP unit lost power for 6 hrs at FRA ramp; shipment of CAR-T cell therapy product compromised — total loss declared by manufacturer (no remediation possible due to time-temp profile). Insurer paid; subrogation pending against Envirotainer.
+- $620K — passive cooler box compromised on ground at JFK; vaccines partially salvaged
+- $310K — theft at FRA airside (3 cooler boxes)
+- ~$180K aggregate small claims
+
+Coverage limits:
+- Per-conveyance: $25M (commercial belly)
+- Per-conveyance freighter: $50M
+- Annual aggregate: $200M
+
+Renewal indications:
+- AXA XL: $3.4M premium, same limits, raises temp-deviation deductible from $25K to $100K per shipment
+- Lloyd's syndicate (Atrium): $3.65M premium, same structure, no deductible increase
+- Markel International: $3.85M, requires GPS data-logger on every shipment >$500K
+
+Other:
+- ATMP (cell therapy) market growing 30% YoY in the insured's book
+- 2 new biotech clients added in Q4 2025 with avg shipment value $2.8M each (target oncology)
+- Insured does not currently use real-time GPS+temp loggers on every shipment""",
+    primary_specialty="marine",
+    additional_specialties=["healthcare"],
+    difficulty=4,
+    time_limit_minutes=50,
+    packet={
+        "Annual cargo value": "$480M",
+        "Commodities": "GMP biologics — vaccines, mAb, ATMPs",
+        "Routes": "JFK↔FRA / ZRH / NRT",
+        "Per-conveyance limits": "$25M belly / $50M freighter / $200M agg",
+        "3-yr losses": "$4.8M (2024 RAP power) + $620K + $310K + $180K",
+        "Indications": "AXA XL $3.4M (deduct ↑) · Atrium $3.65M (same) · Markel $3.85M (GPS req)",
+        "ATMP growth": "+30% YoY",
+        "Real-time loggers": "Not fleet-wide",
+    },
+    red_flag_options=[
+        "ATMP value concentration ($2.8M / shipment)",
+        "Temp-deviation deductible increase (AXA)",
+        "Real-time logger gap",
+        "FRA ramp handling exposure",
+        "Subrogation pending (Envirotainer)",
+        "Single-route concentration (JFK↔FRA)",
+        "Power-fail ULD exposure (active reefer)",
+        "Theft at airside (FRA)",
+    ],
+    model_rationale="""This is a **quote with modifications** — Atrium at $3.65M is the right structural answer; AXA XL's deductible-loaded approach passes risk to the insured in a year when concentration is increasing.
+
+**The $4.8M loss event is the model risk.** A single Envirotainer RAP power failure took a CAR-T shipment to total loss in 6 hours. With ATMPs growing +30% YoY and new biotech clients shipping $2.8M/shipment in oncology product, the right side of the loss distribution is getting fatter. **The per-conveyance limit ($25M belly / $50M freighter) is more than adequate; the concern is frequency of $1M–$5M events.**
+
+**AXA's deductible increase is misframed.** Raising the temperature-deviation deductible from $25K to $100K per shipment doesn't reduce moral hazard meaningfully on $1M+ shipments — it just shifts $75K to the insured per event. **The right risk-mitigation is real-time monitoring, not deductible loading.** Markel's GPS requirement is the structurally correct underwriting move; Atrium implicitly bets on the insured fixing this without mandating it.
+
+**Real-time logger economics.** Industry-standard real-time GPS + temp loggers (Tive Solo, Sensitech TempTale) cost $35–$60 per single-use unit + $5–$10 cellular. On a $2.8M shipment, that's a ~$50 spend to protect a $2.8M asset and produce evidence of carrier liability. The insured should be deploying these on every shipment >$500K already; this is operational maturity. **Recommend the insured commit to fleet-wide real-time monitoring on shipments >$500K before binding, regardless of carrier choice.**
+
+**Subrogation on Envirotainer (open).** Likely 40–70% recovery — Envirotainer's liability is bounded by its lease contract (typically capped at $X per unit-day) but a power-failure case where the ULD telemetry showed a cabin power drop has produced subro recoveries in the 30–50% range historically. Track this; recovery reduces the loss ratio meaningfully.
+
+**Per-conveyance / aggregate adequacy.**
+- $25M belly: a triple-stack of $2.8M ATMP shipments + standard biologics is well inside this. Adequate.
+- $50M freighter: chartered freighters with consolidated cargo from multiple clients can push this. Stress-test with the insured's largest chartered manifest.
+- $200M annual aggregate: $480M annual value / 12 months ≈ $40M/mo. Aggregate fine unless concentration shifts.
+
+**Route concentration risk.** 87% on three transatlantic city pairs. JFK and FRA both have known ramp-handling exposure (JFK winter ground events; FRA capacity congestion). Limited diversification means a single FRA-wide event (labor action, security incident) could spike loss frequency for a quarter.
+
+**Pricing band.** $3.50M–$3.85M defensible. Atrium $3.65M is mid-band, same structure (no risk-passing tricks), bindable.
+
+**Recommendation.** Bind Atrium at $3.65M subject to:
+1. Real-time GPS+temp loggers on 100% of shipments >$500K within 90 days.
+2. Quarterly subrogation status review on the $4.8M Envirotainer claim.
+3. Stress-test chartered-freighter aggregate vs $50M conveyance limit; if any single manifest exceeds $40M, pre-clear with carrier.
+4. Add FRA-specific ground-handling protocol (vendor SLAs + cellular telemetry on every active ULD).""",
+    model_premium_low=3500000,
+    model_premium_high=3850000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "ATMP / cell therapy concentration", "match": ["ATMP", "CAR-T", "cell therapy", "concentration", "$2.8M"], "weight": 1},
+        {"label": "Real-time logger requirement", "match": ["real-time", "GPS", "logger", "Tive", "Sensitech", "TempTale"], "weight": 1},
+        {"label": "Deductible vs monitoring trade-off", "match": ["deductible", "$25K", "$100K", "AXA", "moral hazard"], "weight": 1},
+        {"label": "Envirotainer subrogation", "match": ["Envirotainer", "subrogation", "subro", "recovery", "RAP"], "weight": 1},
+        {"label": "Per-conveyance limits", "match": ["$25M", "$50M", "conveyance", "freighter", "belly"], "weight": 1},
+        {"label": "Aggregate adequacy", "match": ["$200M", "aggregate", "$480M", "annual"], "weight": 1},
+        {"label": "Route concentration (FRA/JFK)", "match": ["FRA", "JFK", "concentration", "ramp", "transatlantic"], "weight": 1},
+        {"label": "Path forward", "match": ["Atrium", "bind", "subject to", "approve"], "weight": 1},
+    ],
+    model_red_flags=[
+        "ATMP value concentration ($2.8M / shipment)",
+        "Real-time logger gap",
+        "FRA ramp handling exposure",
+        "Power-fail ULD exposure (active reefer)",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-015",
+    slug="cargo-cross-border-mexico-electronics",
+    title="Cargo — cross-border MX→US electronics, theft hotspots",
+    summary="Maquiladora-to-US electronics shipper, Laredo + Otay corridor. Two thefts in 2025, one armed. Open cargo policy renewal with new GPS requirement.",
+    scenario="""Open cargo renewal for a tier-1 contract manufacturer that ships consumer electronics from maquiladoras in northern Mexico to US distribution hubs.
+
+Operations:
+- Annual cargo value: $1.2B (high-value consumer electronics: smartphones, tablets, wearables)
+- Routes: 60% Laredo (TX) crossing, 30% Otay Mesa (CA), 10% Eagle Pass
+- Modes: cross-border trucking (single contracted Mexican carrier picks up at MX plant; trans-loads at FTZ; US carrier picks up for inland distribution)
+- Per-conveyance avg: $1.4M; max in 2025 was $4.8M
+
+Loss history (24 mo):
+- 2025 Q1: armed hijacking on Highway 85 inside Mexico — $2.6M smartphone load, total loss, paid net of $50K deductible
+- 2025 Q3: midnight theft from secured yard at Laredo FTZ — $620K wearables load
+- 2024 Q4: minor pilferage claims aggregating $145K
+- 2024 Q2: handling damage from inland US carrier — $310K (subro-pending)
+
+Coverage requested:
+- Open cargo all-risks (ICC A)
+- War / SR&CC
+- Customs duty cover
+- Brand-protection / destruction clause (high-end smartphones)
+- $25M per conveyance / $400M annual aggregate
+
+Renewal indications:
+- Allianz Global Corporate: $4.2M (flat), requires real-time GPS + geofence + driver biometric on every load
+- Liberty Mutual Surety/Marine: $4.65M (+12%), same structure but no biometric requirement
+- Lloyd's syndicate: $5.1M (+22%), insists on $250K per-event deductible (up from $50K)
+
+Other:
+- Maquiladora region (Reynosa, Matamoros, Juárez) has elevated cargo theft index — CargoNet/SensiGuard data shows MX cargo theft up 18% YoY
+- Insured does not currently use biometric driver verification
+- Brand owner (smartphone OEM) requires destruction-on-loss clause to prevent gray-market resale""",
+    primary_specialty="marine",
+    additional_specialties=["multi-jurisdictional", "programs"],
+    difficulty=4,
+    time_limit_minutes=50,
+    packet={
+        "Annual cargo value": "$1.2B",
+        "Routes": "Laredo 60% / Otay 30% / Eagle Pass 10%",
+        "Per-conveyance avg / max": "$1.4M / $4.8M (2025)",
+        "24-mo losses": "$2.6M HY85 hijack · $620K yard theft · $145K pilferage · $310K damage",
+        "Indications": "Allianz $4.2M (GPS+bio) · Liberty $4.65M · Lloyd's $5.1M ($250K deduct)",
+        "MX cargo theft trend": "+18% YoY",
+    },
+    red_flag_options=[
+        "MX-side armed hijacking exposure",
+        "Biometric driver verification gap",
+        "Single Mexican carrier dependence",
+        "Brand-protection / destruction clause",
+        "Otay/Laredo FTZ security",
+        "Lloyd's deductible escalation",
+        "Highway 85 corridor (Reynosa)",
+        "High-value single conveyance ($4.8M)",
+    ],
+    model_rationale="""This is an **approve as quoted** for Allianz — they're the only carrier pricing risk-mitigation correctly, and the biometric requirement is a meaningful frequency-reduction lever for MX-side losses.
+
+**MX-side hijacking is the structural exposure.** $2.6M on Highway 85 was the wake-up call. Reynosa–Matamoros corridor cargo theft trended +18% YoY per CargoNet/SensiGuard 2025 reports; the consumer electronics segment is targeted specifically because product is liquid (resold via gray markets within 72 hrs of theft). **Without driver-side biometrics and real-time geofencing, the next armed event is a "when, not if" — and the loss will be in the $1M–$3M range.**
+
+**Allianz's structure (GPS + geofence + biometric).** All three controls work together:
+- **GPS** alone is reactive — you find the truck after the theft.
+- **Geofence** + alerting gives you a 10–20 minute window to flag a deviation.
+- **Biometric driver verification** addresses the inside-job vector: switched drivers, coerced drivers, fake credentials. This is the highest-friction lever against organized cargo theft rings.
+Combined, the package reduces frequency by 35–55% based on industry studies (CargoNet, Loadsure). Worth the carrier's flat pricing.
+
+**Liberty's $4.65M without biometric** is overpriced relative to its risk controls — they're charging more for less protection. Pass.
+
+**Lloyd's $5.1M + $250K deductible** is the worst of both worlds: more premium and more retained loss. Pass.
+
+**Brand-protection / destruction clause.** OEM contract requires that lost/stolen product be destroyed (or salvaged for destruction) to prevent gray-market resale. This is a meaningful claim-cost mechanism — instead of salvage recovery offsetting losses, the insurer pays gross. **Confirm Allianz's policy form includes a destruction clause that follows OEM requirements; Liberty and Lloyd's forms may or may not.**
+
+**FTZ / inland trans-loading risk.** $620K yard theft at Laredo FTZ is a separate exposure pattern (insider, midnight access). Mitigation:
+- Two-person rule on yard access after 8 PM
+- 24/7 manned security at the FTZ (not just CCTV)
+- Tamper-evident container seals (electronic, not just mechanical)
+
+**Per-conveyance limits.** $25M per conveyance is well in excess of $4.8M max — adequate. $400M annual aggregate vs. $1.2B in transit = aggregate is the right size if events stay below $20M total/yr; currently at ~$3.7M average — fine.
+
+**Pricing band.** $4.0M–$4.85M defensible. Allianz $4.2M flat with the risk-controls layered = best structural value.
+
+**Recommendation.** Bind Allianz at $4.2M subject to:
+1. Real-time GPS + geofence on every MX→US load >$500K within 60 days.
+2. Driver biometric verification protocol (fingerprint or face-match at pickup) implemented within 90 days; alternative: BSI-certified driver chaperone program.
+3. FTZ yard security upgrade — two-person rule + electronic seals.
+4. OEM-aligned destruction clause confirmed in Allianz form.
+5. Quarterly cargo-theft trend review with CargoNet data integration.""",
+    model_premium_low=4000000,
+    model_premium_high=4850000,
+    model_recommendation="approve",
+    key_factors=[
+        {"label": "MX-side hijacking exposure", "match": ["Highway 85", "Reynosa", "Matamoros", "hijack", "CargoNet", "+18%"], "weight": 1},
+        {"label": "Biometric driver verification", "match": ["biometric", "driver", "verification", "fingerprint", "face"], "weight": 1},
+        {"label": "GPS + geofence framework", "match": ["GPS", "geofence", "real-time", "alerting"], "weight": 1},
+        {"label": "Brand-protection / destruction clause", "match": ["destruction", "brand protection", "gray market", "OEM"], "weight": 1},
+        {"label": "FTZ yard exposure", "match": ["FTZ", "yard", "Laredo", "two-person", "seal"], "weight": 1},
+        {"label": "Per-conveyance / aggregate adequacy", "match": ["$25M", "$400M", "aggregate", "conveyance", "$4.8M"], "weight": 1},
+        {"label": "Carrier comparison", "match": ["Allianz", "Liberty", "Lloyd", "$4.2M", "$4.65M", "$5.1M"], "weight": 1},
+        {"label": "Path forward", "match": ["Allianz", "bind", "subject to", "approve"], "weight": 1},
+    ],
+    model_red_flags=[
+        "MX-side armed hijacking exposure",
+        "Biometric driver verification gap",
+        "Brand-protection / destruction clause",
+        "High-value single conveyance ($4.8M)",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-016",
+    slug="inland-marine-contractors-equipment",
+    title="Inland marine — heavy-civil contractor's equipment, $48M schedule",
+    summary="GC with $48M heavy-civil equipment fleet (cranes, excavators, drills). Three jobsite thefts + one rollover. Inland marine renewal with capacity questions.",
+    scenario="""Renewal submission for the Contractors Equipment Floater (inland marine) on a heavy-civil GC working bridges, highways, and water/wastewater projects.
+
+Schedule:
+- 412 items, $48.3M total insured value
+- Major items:
+  * 3 crawler cranes (Liebherr LR series) at $4.2M, $3.6M, $3.1M each
+  * Hydraulic drill rig (Bauer BG-28) at $2.4M
+  * 38 excavators (CAT, Komatsu) ranging $180K–$650K
+  * 14 articulated dump trucks
+  * 8 telescopic boom lifts
+  * Smaller scheduled items + unscheduled <$25K
+- Geography: TX, NM, OK, LA jobsites
+
+Coverage requested:
+- All-risks inland marine equipment floater
+- $48.3M scheduled + $500K unscheduled
+- Coverage at active jobsites, in transit, in storage yards
+- Rental reimbursement endorsement
+- Pollution cleanup sublimit
+- Spare parts
+
+Loss history (5 yr):
+- 6 theft claims totaling $1.8M (all jobsite, mostly mid-size excavators, 4 in CA-border NM counties)
+- 1 crawler-crane rollover in 2024 ($1.6M, operator error during pick-and-carry — settled, no fatality)
+- 2 hydraulic-line damage from environmental causes ($95K)
+- 1 cargo-in-transit claim — articulated dump truck rolled off lowboy ($380K)
+- 0 pollution claims
+
+Renewal indications:
+- Liberty Mutual / Liberty IM: $385K, no schedule changes
+- Travelers Inland: $410K, raises crane sub-limit from $5M per item to $4M per item
+- Chubb (Specialty): $448K, includes $1M rental reimbursement, requires GPS tracking on items >$200K
+
+Other:
+- Insured uses Tenna fleet-mgmt for 84 of 412 items
+- 4 of 6 thefts occurred at the same NM jobsite (Eddy County)
+- Crawler crane utilization: 3,200 hrs/yr each on average
+- Insured has a $250K SIR per occurrence on inland marine""",
+    primary_specialty="inland-marine",
+    additional_specialties=["construction"],
+    difficulty=3,
+    time_limit_minutes=45,
+    packet={
+        "TIV": "$48.3M (412 items)",
+        "Major items": "3 crawler cranes ($10.9M total), Bauer drill $2.4M",
+        "Geography": "TX, NM, OK, LA",
+        "5-yr losses": "$1.8M theft (4 in NM) + $1.6M crane rollover + $380K transit",
+        "SIR": "$250K per occurrence",
+        "Indications": "Liberty $385K · Travelers $410K (crane sub-limit ↓) · Chubb $448K (+rental, GPS req)",
+        "Tracking penetration": "84/412 items on Tenna",
+    },
+    red_flag_options=[
+        "NM (Eddy County) theft pattern",
+        "Crane operator error pattern",
+        "Limited GPS tracking penetration",
+        "Travelers crane sub-limit reduction",
+        "Border-county theft severity",
+        "Transit / lowboy securement",
+        "Pollution sublimit gap on hydraulic-line breaks",
+        "Operator-error driving rollover frequency",
+    ],
+    model_rationale="""This is a **quote with modifications** — Chubb at $448K with the GPS tracking requirement on items >$200K is the right answer, even though it's the most expensive. The rental reimbursement endorsement and risk-control structure are worth the spread.
+
+**Theft pattern is the dominant signal.** 4 of 6 thefts at the same NM jobsite (Eddy County) over 5 years is not random — it's an operational footprint problem. Eddy County is in the Permian Basin oil-services corridor with elevated organized-theft activity targeting heavy equipment for export to MX or for ag/construction resale. **Mitigation can't be done at the policy level; it has to happen at the jobsite level:**
+- 24/7 manned security on jobsites with items >$500K parked overnight
+- Hydraulic-line lockouts + steering-wheel locks on excavators when parked
+- Tenna or equivalent GPS+geofence on every item >$200K (Chubb is right to require this)
+- After-dark visit log / sign-in for all employees + contractors
+
+**Crane rollover.** $1.6M in 2024 — operator error during pick-and-carry. Single events happen, but at $3.1M–$4.2M per crawler crane, operator competency is the dominant variable. Mitigation:
+- NCCCO certification on all crane operators (verify in personnel file)
+- Annual recertification on Liebherr LR-series specifically
+- Pre-pick checklist + ground-conditions assessment (esp. pick-and-carry moves)
+- Lift director assigned for any critical pick >75% of chart capacity
+
+**Travelers' sub-limit reduction.** Going from $5M per item to $4M per item leaves the $4.2M crawler crane *underinsured by $200K*. **Reject Travelers as quoted** unless they restore the $5M sub-limit. The 7% premium savings vs Liberty is washed out by the $200K coverage gap.
+
+**Chubb's GPS requirement.** Tracking on 84/412 items today; required to be all items >$200K means roughly 60 additional units. Tenna or similar runs $30/mo per unit; ~$22K/yr operating cost. **Payback is one avoided theft event.** Easy lift.
+
+**Rental reimbursement.** $1M endorsement is meaningful — heavy-civil equipment rental during downtime runs $14–22K/mo for mid-size excavators, $45–65K/mo for crawler cranes. Single theft of a crane could trigger 4–8 months of rental cost. Liberty/Travelers don't include this; Chubb does.
+
+**Pollution sublimit.** Hydraulic-line failures are responsible for 2 of the smaller claims — these can become pollution events on jobsites near waterways (water/wastewater work, by definition, is near waterways). Confirm the pollution cleanup sublimit on inland marine is at least $250K (industry standard for this exposure).
+
+**Pricing band.** $400K–$475K defensible. Chubb $448K at the upper-mid band, but loaded with the structural advantages.
+
+**Recommendation.** Bind Chubb at $448K subject to:
+1. GPS tracking on all items >$200K within 90 days (Tenna or equivalent).
+2. Eddy County (or any high-theft jobsite) night-watch + jobsite security plan.
+3. NCCCO certification audit + annual recertification documented for all crane operators.
+4. Confirm pollution cleanup sublimit $250K+ for hydraulic-line / fuel-spill exposure.
+5. Quarterly loss-control call through year 1.""",
+    model_premium_low=400000,
+    model_premium_high=475000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "Eddy County theft pattern", "match": ["Eddy", "New Mexico", "Permian", "theft", "pattern", "border"], "weight": 1},
+        {"label": "GPS tracking penetration", "match": ["GPS", "Tenna", "tracking", "geofence", "$200K"], "weight": 1},
+        {"label": "Crane operator competency", "match": ["NCCCO", "crane", "operator", "pick-and-carry", "certification"], "weight": 1},
+        {"label": "Crane sub-limit", "match": ["sub-limit", "crawler", "$5M", "$4M", "Travelers"], "weight": 1},
+        {"label": "Rental reimbursement value", "match": ["rental reimbursement", "downtime", "$1M", "crane", "endorsement"], "weight": 1},
+        {"label": "Pollution sublimit", "match": ["pollution", "hydraulic", "spill", "waterway", "sublimit"], "weight": 1},
+        {"label": "Carrier comparison", "match": ["Liberty", "Travelers", "Chubb", "$385", "$410", "$448"], "weight": 1},
+        {"label": "Path forward", "match": ["Chubb", "bind", "subject to", "approve"], "weight": 1},
+    ],
+    model_red_flags=[
+        "NM (Eddy County) theft pattern",
+        "Limited GPS tracking penetration",
+        "Travelers crane sub-limit reduction",
+        "Operator-error driving rollover frequency",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-017",
+    slug="ocean-marine-bunker-fuel-tanker",
+    title="Ocean marine — small bunker-fuel tanker operator, USVI charter",
+    summary="14-vessel coastal bunker tanker fleet operating Caribbean / Gulf. Recent fuel-oil release in St. Thomas harbor. H&M + P&I renewal under stress.",
+    scenario="""Marine H&M (Hull & Machinery) + P&I (Protection & Indemnity) renewal for a regional bunker-fuel and lube-oil supplier.
+
+Fleet:
+- 14 vessels, mix of:
+  * 4 coastal bunker tankers (2,500–5,000 DWT)
+  * 6 small bunker barges (towed)
+  * 4 support tugs
+- Average vessel age: 18 years
+- Insured values:
+  * Tankers: $4.2M–$8.4M (newest $8.4M, oldest $4.2M)
+  * Barges: $1.2M–$2.4M
+  * Tugs: $1.8M–$2.6M
+- Total H&M insured value: ~$48M
+- Trading area: US Gulf, Caribbean (USVI, Puerto Rico), occasional Bahamas
+
+Coverage requested:
+- H&M on per-vessel basis (American Institute Hull Clauses + IV 1/10/83 RDC + 4/4ths Collision)
+- P&I via mutual club entry (existing — Britannia P&I) with $500M limit
+- Pollution liability: $1B oil-pollution per OPA-90 + COFR
+- Charterer's liability for chartered-in tonnage (occasional)
+
+Loss history (5 yr):
+- 2024 fuel-oil release: 11,200 gallons #6 fuel oil into St. Thomas harbor during transfer; cleanup + NRD + 3rd-party claims $4.8M paid; potential CERCLA Section 107 claim still being negotiated by USCG
+- 2023 hull contact at Port Everglades — $580K H&M
+- 2022 grounding (barge), salvage + minor pollution $310K
+- 2021 minor cargo claim from short delivery $48K
+- 6 small crew injury claims (Jones Act / LHWCA mix) $410K total
+
+Indications:
+- AmAtlantic Marine (admitted): H&M $1.85M (+8%), P&I via club entry separate
+- Lloyd's syndicate (Atrium/Hiscox lineslip): H&M $1.72M (+0%), syndicate concerned about USVI rotation
+- Liberty Marine: declined H&M ("vessel age + USVI exposure")
+- P&I (Britannia): call increase 11%; mutual club discretion on $4.8M pollution claim still pending
+
+Other:
+- Insured fleet has 6 vessels equipped with double-skin hulls (newer); 4 single-hull tankers grandfathered under OPA-90 transition phase-out (final phase-out date: 1/1/2027 for the 2 largest)
+- USVI Coastal Zone Management Authority increasing fines on harbor pollution events
+- St. Thomas harbor incident: NTSB final report cited valve mis-alignment by crew + outdated SOP; Coast Guard required corrective action plan""",
+    primary_specialty="ocean-marine",
+    additional_specialties=["environmental"],
+    difficulty=5,
+    time_limit_minutes=60,
+    packet={
+        "Fleet": "14 vessels (4 tankers, 6 barges, 4 tugs)",
+        "H&M TIV": "~$48M",
+        "Trading area": "US Gulf + Caribbean",
+        "5-yr losses": "$4.8M USVI release + $580K Port Everglades + $310K + $48K + $410K Jones Act",
+        "OPA-90 phase-out": "2 single-hull tankers phase out 1/1/2027",
+        "Britannia P&I call": "+11%",
+        "Indications": "AmAtlantic $1.85M · Atrium/Hiscox $1.72M · Liberty declined",
+        "USVI regulator": "Increasing pollution fines",
+    },
+    red_flag_options=[
+        "OPA-90 single-hull phase-out (2027)",
+        "Open CERCLA negotiation (USVI release)",
+        "USVI regulatory enforcement trend",
+        "Jones Act crew-injury exposure",
+        "Liberty's decline (capacity signal)",
+        "P&I mutual club discretion uncertainty",
+        "Fleet age (avg 18 yr)",
+        "Single-customer USVI rotation concentration",
+    ],
+    model_rationale="""This is a **needs more info / restructure** — the H&M can be placed, but the program structure needs to address the OPA-90 phase-out timing and the open CERCLA negotiation before binding cleanly.
+
+**OPA-90 phase-out is a hard date.** Two single-hull tankers phase out January 1, 2027. That's ~7 months after this renewal expires. **The H&M policy needs a clear vessel-by-vessel disposition plan:** lay-up date, sale to non-US flag, charter into non-US trade, or scrap. Without that plan, you're underwriting vessels that may be tied up at a dock generating zero revenue but full premium for 6+ months of the policy year. Get this from the insured before binding.
+
+**CERCLA Section 107 negotiation.** A pending CERCLA cost-recovery action from USCG layered on top of the $4.8M already paid means the loss is not closed. CERCLA claims add joint-and-several liability for natural resource damages and downstream cleanup costs not yet quantified. **Reserve a $1M–$3M tail estimate against this incident** and confirm whether the P&I club's mutual discretion responds to CERCLA-only allegations (sometimes excluded, sometimes responsive — Britannia rules read responsive but discretion is the operative word).
+
+**P&I via mutual club.** Britannia's +11% call is in line with the broader IG (International Group) market; the mutual club discretion question matters more than the call. **Talk to Britannia's claims management directly** to confirm coverage position on the open CERCLA file before binding the renewal.
+
+**H&M placement.**
+- AmAtlantic $1.85M (admitted): cleaner regulatory profile, but +8% over expiring suggests they're nervous about USVI rotation too.
+- Atrium/Hiscox $1.72M (Lloyd's): cheaper, but Lloyd's syndicate concern about USVI rotation likely manifests as either:
+  - A reduced sub-limit on USVI-bound vessels, or
+  - A pollution-exclusion / sublimit on USVI exposure
+  Read the slip carefully.
+- Liberty declined — capacity signal that USVI + vessel age is being shed.
+
+**Vessel-by-vessel hull values.** Average age 18 yr is high; survey-and-classify status for each tanker needs to be current (USCG COI + Class society survey within 6 mo). If any vessel is overdue for special survey, hull value drops materially in claim adjustment.
+
+**Pollution coverage stacking.** OPA-90 requires $1B + COFR. P&I responds for pollution within club rules. Confirm the H&M slip doesn't carry a pollution exclusion that conflicts with P&I assumptions — coverage gaps in pollution stacking are how OPA-90 claims get unpaid.
+
+**Recommendation.** Restructure before binding:
+1. Vessel disposition plan for the 2 single-hull tankers by 1/1/2027 — locked-in dates.
+2. CERCLA tail reserve estimate from Britannia + carrier-side reserve from H&M market.
+3. Read Atrium slip for USVI rotation language; if pollution-limited there, place AmAtlantic instead.
+4. Survey + class society status confirmed for all 4 tankers within 30 days.
+5. SOP correction action plan from St. Thomas incident verified and implemented fleetwide.
+
+Pricing band (H&M only): $1.65M–$1.95M defensible. After review, expect to bind Atrium $1.72M if the slip reads clean, otherwise AmAtlantic $1.85M.""",
+    model_premium_low=1650000,
+    model_premium_high=1950000,
+    model_recommendation="needs_more_info",
+    key_factors=[
+        {"label": "OPA-90 phase-out timing", "match": ["OPA-90", "phase-out", "single-hull", "2027", "disposition"], "weight": 1},
+        {"label": "CERCLA exposure", "match": ["CERCLA", "Section 107", "USCG", "NRD", "natural resource"], "weight": 1},
+        {"label": "P&I mutual club discretion", "match": ["P&I", "Britannia", "mutual", "club", "discretion", "IG"], "weight": 1},
+        {"label": "USVI regulatory + venue", "match": ["USVI", "St. Thomas", "CZMA", "harbor", "regulator"], "weight": 1},
+        {"label": "Vessel age / survey status", "match": ["18 years", "survey", "class", "COI", "USCG"], "weight": 1},
+        {"label": "Pollution coverage stacking", "match": ["pollution", "stacking", "$1B", "COFR", "exclusion"], "weight": 1},
+        {"label": "Carrier comparison", "match": ["AmAtlantic", "Atrium", "Hiscox", "Liberty", "$1.72", "$1.85"], "weight": 1},
+        {"label": "Path forward / restructure", "match": ["restructure", "needs", "disposition", "verify", "before binding"], "weight": 1},
+    ],
+    model_red_flags=[
+        "OPA-90 single-hull phase-out (2027)",
+        "Open CERCLA negotiation (USVI release)",
+        "USVI regulatory enforcement trend",
+        "P&I mutual club discretion uncertainty",
+    ],
+))
+
+
+# === BATCH 3: D&O + E&O + Media + Cyber (8 cases) ===========================
+
+cases.append(Case(
+    code="DOJO-2026-018",
+    slug="do-pre-ipo-fintech",
+    title="D&O — late-stage fintech, S-1 filed, dual-class structure",
+    summary="$1.4B-valuation fintech filed S-1, IPO targeted Q3 2026. Run-off / new-public-D&O placement. Dual-class stock + recent CFO departure under cloud.",
+    scenario="""Late-stage fintech (consumer-credit + BNPL) preparing for IPO. S-1 filed with SEC on 2026-03-12. IPO targeted Q3 2026 at a $1.4B valuation.
+
+Company profile:
+- Founded 2018; Series A–E completed
+- Revenue: $186M ARR; 38% YoY growth
+- Headcount: 480
+- Burn rate: $5.2M/mo; runway: 18 mo cash
+- HQ: Austin, TX; engineering office in Berlin
+
+Coverage requested:
+- Side A / Side B / Side C D&O for the public company (effective at IPO)
+- Run-off Side A on the pre-IPO private company D&O policy
+- IPO road-show D&O (limited 90-day pre-IPO defense coverage)
+- Limits sought: $50M total tower (likely 5x $10M or 10x $5M)
+- Dual-class share structure: founder retains 65% voting via Class B (10:1 voting ratio)
+
+Recent developments:
+- CFO departed 2026-02-04 after a forensic audit flagged $4.2M in unrecognized revenue across 3 quarters in 2024 (restated)
+- 1 derivative-suit demand received 2026-01-22 alleging board oversight failures on rev rec
+- Q4 2025 net loss widened to -$28M vs forecast -$19M; missed last private-round investor presentation forecast
+- CFPB began an informal inquiry into BNPL late-fee practices Q1 2026
+- Investor litigation track record: 0 prior D&O claims
+
+Market quotes for the public company tower:
+- Primary $10M: AIG $625K, Beazley $585K, Allied World $640K
+- $10M xs $10M: Endurance $445K, Argo $410K, Travelers $475K
+- $30M xs $20M: 3 layers, indications $810K–$925K aggregate
+
+Run-off Side A (6-year):
+- Lloyd's $1.95M for $20M limit
+- Berkshire $2.1M for $25M limit
+
+Other:
+- IPO underwriter: Morgan Stanley + Goldman Sachs
+- Auditor: Deloitte (PCAOB review of restatement underway)""",
+    primary_specialty="directors-officers",
+    additional_specialties=["programs"],
+    difficulty=5,
+    time_limit_minutes=60,
+    packet={
+        "Company": "Fintech / BNPL, $186M ARR, 38% growth",
+        "IPO target": "Q3 2026, $1.4B valuation",
+        "Voting structure": "Dual-class — founder 65% via 10:1 Class B",
+        "CFO departure": "Feb 2026 after $4.2M rev rec restatement",
+        "Derivative demand": "Jan 2026, board oversight",
+        "Regulator": "CFPB informal inquiry — BNPL late fees",
+        "Burn / runway": "$5.2M/mo / 18 mo",
+        "Tower sought": "$50M (likely 5 layers)",
+        "Run-off Side A": "Lloyd's $1.95M / Berkshire $2.1M",
+    },
+    red_flag_options=[
+        "Recent restatement + CFO departure",
+        "Open derivative demand (pre-IPO)",
+        "CFPB inquiry (regulatory)",
+        "Dual-class structure (governance litigation risk)",
+        "Forecast miss on private-round presentation",
+        "Auditor PCAOB review of restatement",
+        "Short cash runway vs IPO timing",
+        "Founder voting concentration",
+    ],
+    model_rationale="""This is a **quote with modifications** — the tower can be placed, but the structure needs more Side A capacity and the IPO road-show coverage period needs careful drafting given the open derivative demand.
+
+**The restatement + CFO departure is the entire underwriting question.** Securities-class-action (SCA) risk on IPOs spikes when there's a recent restatement, dual-class structure, or board-oversight derivative activity already on file. **This company has all three.** Empirically, post-IPO SCA filing rates are 8–12% within 24 months; this profile is 2–3x average. The base case is that *something* gets filed against the public company within 18 months.
+
+**Tower sizing.** $50M is light for this profile. Recommend $75M–$100M total: $25M Side A only, then $50M–$75M ABC tower. Reasoning: SCA settlements at this market cap range $25M–$80M (Stanford Securities Class Action Clearinghouse data, 2023–2025), with defense costs $8M–$18M before settlement. A $50M total tower is one bad settlement from exhausting.
+
+**Side A separation.** With dual-class structure + derivative demand, Side A-only coverage matters because:
+- Side A pays IDLs (individual directors and officers) directly when the entity can't indemnify.
+- Delaware law prevents indemnification for derivative claims if not on behalf of the corporation.
+- A founder-controlled board is more likely to face oversight challenges where indemnification is constrained.
+**Run-off Side A on the private-company policy is correct** — $20M Lloyd's at $1.95M or $25M Berkshire at $2.1M. Berkshire is the better ratio (~$84K/M vs Lloyd's $98K/M). Place Berkshire.
+
+**Road-show coverage.** Limit to 90 days pre-effective IPO. **Confirm the policy form does not exclude misrepresentations in the S-1 or road-show materials** — this is the entire point of the coverage; some forms carve back via "underwriter exception" language that creates litigation traps.
+
+**CFPB BNPL inquiry.** Informal inquiry today, but the CFPB has been the source of multiple BNPL enforcement actions since 2023. **Confirm Side A / B coverage responds to regulatory investigation costs (pre-claim defense) without subject-to-formal-proceeding triggers** — many D&O forms require formal investigation to trigger; you want a "wells notice / target letter / civil investigative demand" trigger here.
+
+**Pricing band.**
+- Primary $10M: $585K–$640K range; **Beazley $585K** is the right answer (good claim shop on tech IPOs).
+- $10M xs $10M: **Argo $410K** edges the others.
+- $30M xs $20M: Mid-band $850K reasonable.
+- Increase Side A specifically to $25M.
+- Total public-company tower: ~$1.92M–$2.10M defensible band.
+
+**Recommendation.** Bind:
+1. Public-company tower: Beazley $10M primary + Argo $10M xs $10M + standard 3-layer $30M xs $20M; **expand Side A separately to $25M** via Lloyd's facility (typical price $260–340K).
+2. Run-off Side A on private co: **Berkshire $2.1M / $25M / 6-year**.
+3. Road-show coverage: 90-day, $10M, primary placed with Beazley.
+
+Subjectivities:
+- S-1 final amendments reviewed by D&O carrier counsel before effective date.
+- CFPB inquiry status update at binding.
+- Derivative-demand response strategy confirmed.""",
+    model_premium_low=1920000,
+    model_premium_high=2400000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "Restatement / CFO departure", "match": ["restatement", "CFO", "$4.2M", "rev rec", "departure"], "weight": 1},
+        {"label": "Dual-class governance", "match": ["dual-class", "Class B", "10:1", "voting", "founder"], "weight": 1},
+        {"label": "Tower sizing", "match": ["$50M", "$75M", "$100M", "tower", "size", "settlement"], "weight": 1},
+        {"label": "Side A separation", "match": ["Side A", "Side B", "Side C", "IDL", "non-indemnifiable"], "weight": 1},
+        {"label": "Road-show / S-1 coverage", "match": ["road-show", "S-1", "IPO", "90-day", "underwriter exception"], "weight": 1},
+        {"label": "CFPB / regulatory trigger", "match": ["CFPB", "regulatory", "investigation", "wells notice", "CID"], "weight": 1},
+        {"label": "Run-off Side A", "match": ["run-off", "6-year", "Berkshire", "Lloyd", "$2.1M"], "weight": 1},
+        {"label": "Path forward", "match": ["Beazley", "Argo", "bind", "subject to", "approve"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Recent restatement + CFO departure",
+        "Open derivative demand (pre-IPO)",
+        "CFPB inquiry (regulatory)",
+        "Dual-class structure (governance litigation risk)",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-019",
+    slug="do-private-co-pe-backed",
+    title="D&O — PE-backed manufacturer, EBITDA recapitalization",
+    summary="PE-backed mid-market manufacturer doing a dividend recap. Existing D&O renewal coincides with $180M dividend. Coverage implications + EPL stack tie-in.",
+    scenario="""Private D&O renewal for a PE-backed industrial-products manufacturer about to execute a $180M dividend recapitalization.
+
+Company:
+- $740M revenue; $108M EBITDA
+- Owned by a mid-market PE firm (5-year hold), year 3 of hold
+- 1,400 employees across 5 plants (TX, AL, OH, PA, IL)
+- Last 24 months: 2 bolt-on acquisitions ($42M + $28M)
+
+Dividend recap:
+- $180M cash distribution to PE owner + management
+- Funded by incremental $200M Term Loan B (existing $340M senior secured)
+- Post-recap leverage: ~5.0x net debt / EBITDA (vs 3.4x pre)
+- Distribution will be a one-time event; PE retains 100% equity
+
+Coverage requested:
+- Private D&O $25M tower
+- EPL coverage at $5M
+- Fiduciary $5M
+
+Loss history (5 yr):
+- 1 EPL claim — $310K settled (single-plaintiff Title VII race claim, TX, mediated)
+- 0 D&O claims
+- 1 Title VII charge from EEOC (resolved, no money damages)
+
+Renewal indications:
+- Beazley: $185K D&O / $48K EPL / $14K fiduciary — concerned about leverage post-recap, requires bring-down condition
+- Chubb: $215K D&O / $52K EPL / $16K fiduciary — flat structure
+- Tokio Marine HCC: $172K D&O / $51K EPL / $14K fiduciary
+
+Other:
+- 2024 plant shutdown in OH (closed Q3, 220 employees impacted) — WARN Act notice given 70 days prior, no claims so far
+- Senior CFO leaving Q2 2026 (announced); replacement search ongoing
+- 1 outstanding seller-rep claim from a 2023 acquisition (~$2.8M, defense + indemnity from seller, R&W policy responding)""",
+    primary_specialty="directors-officers",
+    additional_specialties=["employment-practices"],
+    difficulty=4,
+    time_limit_minutes=45,
+    packet={
+        "Revenue / EBITDA": "$740M / $108M",
+        "Dividend recap": "$180M, funded by +$200M TLB",
+        "Post-recap leverage": "5.0x (was 3.4x)",
+        "Loss history": "$310K EPL / 0 D&O",
+        "Bolt-ons": "$42M + $28M (last 24 mo)",
+        "Indications": "Beazley $247K (bring-down) · Chubb $283K · TMK HCC $237K",
+        "Plant closure": "OH, 220 employees, Q3 2024",
+        "CFO transition": "Q2 2026",
+    },
+    red_flag_options=[
+        "Post-recap leverage spike (5.0x)",
+        "OH plant closure / WARN exposure",
+        "CFO transition timing",
+        "Bring-down condition (Beazley)",
+        "PE-owner-directed dividend (creditor litigation risk)",
+        "Pending seller-rep claim",
+        "Bolt-on integration risk",
+        "Heavy PA / OH venue exposure",
+    ],
+    model_rationale="""This is an **approve with modifications** — Tokio Marine HCC at $237K combined is the best price, but the bring-down condition on the recap is needed regardless of which carrier writes it.
+
+**The recap is the entire story.** Going from 3.4x to 5.0x net debt / EBITDA in a single distribution event creates two specific D&O exposures:
+1. **Creditor / fraudulent-conveyance suits** — If the company stumbles within 24 months post-recap, creditors can argue the $180M distribution rendered the company insolvent (UFTA / state fraudulent-transfer statutes). Suits typically target the board for approving the distribution; D&O Side A responds. Empirically: 4–8% of PE-backed recaps generate a creditor suit within 36 months when leverage exceeds 5x.
+2. **Solvency representation suits** — If the company files for bankruptcy 18+ months after recap, the trustee/UCC will dig into the solvency opinion the board relied on. **Confirm the board obtained a written solvency opinion from a qualified third party** (Houlihan Lokey, Lincoln International typical). Without one, the directors are exposed.
+
+**Beazley's bring-down condition** is correct underwriting — it's a clause that says the policy doesn't respond to claims arising from the recap unless the board completes specified solvency due diligence. It's the right requirement but a friction point for the insured.
+
+**Chubb's "flat structure" with no bring-down** is overpriced for the structure. If they're not requiring solvency due diligence, they're either pricing in claim risk (hence the higher premium) or they're flat-out missing the issue. Either way pass.
+
+**TMK HCC** at $237K and presumably similar bring-down logic (confirm) is the best fit.
+
+**OH plant closure / WARN Act.** 70-day WARN notice was given (60-day minimum federally; OH state law adds nothing). No claims yet — get to 180 days post-closure mark and the WARN exposure largely cleared. But:
+- Discrimination disparate-impact claims have a 300-day EEOC filing window from the date of the protected-class-impacting decision. 220 employees impacted — even at 1% file rate, that's 2 charges; nuisance value but defendable.
+- Confirm EPL form does not have a "mass layoff" sublimit or exclusion.
+
+**CFO transition.** Mid-recap CFO departure is a small flag. If unexplained, ask for a transition letter and signed certification on the financials. Probably nothing, but PE-backed company CFO departures at year-3 of hold often correlate with audit-related disagreements.
+
+**Pending seller-rep claim.** $2.8M is being absorbed by R&W policy and seller indemnification escrow. Doesn't affect D&O directly unless the buyer's board waived rights or failed to give timely notice.
+
+**Pricing band.** D&O $170K–$220K, EPL $48K–$55K, Fiduciary $13K–$16K. TMK HCC is in the middle of all three.
+
+**Recommendation.** Bind TMK HCC at $237K combined subject to:
+1. Solvency opinion (Houlihan or equivalent) on the $180M distribution — final report delivered to carrier before recap closes.
+2. CFO transition letter + financial certification by outgoing CFO.
+3. Bring-down condition equivalent: D&O policy responds post-recap only if solvency opinion in place.
+4. WARN-Act sublimit / mass-layoff carve-back not present in EPL form (confirm).
+5. Quarterly leverage update through year 1 post-recap.""",
+    model_premium_low=170000 + 48000 + 13000,
+    model_premium_high=220000 + 55000 + 16000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "Post-recap leverage spike", "match": ["5.0x", "3.4x", "leverage", "recap", "$180M"], "weight": 1},
+        {"label": "Fraudulent conveyance / UFTA", "match": ["fraudulent", "conveyance", "UFTA", "creditor", "insolvent"], "weight": 1},
+        {"label": "Solvency opinion", "match": ["solvency", "opinion", "Houlihan", "Lincoln", "third party"], "weight": 1},
+        {"label": "Bring-down condition", "match": ["bring-down", "Beazley", "condition", "due diligence"], "weight": 1},
+        {"label": "WARN Act / OH closure", "match": ["WARN", "OH", "Ohio", "closure", "220", "EEOC"], "weight": 1},
+        {"label": "CFO transition", "match": ["CFO", "transition", "departure", "certification"], "weight": 1},
+        {"label": "Pricing band", "match": ["$170", "$220", "$237", "$247", "$283"], "weight": 1},
+        {"label": "Path forward", "match": ["TMK", "HCC", "bind", "subject to"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Post-recap leverage spike (5.0x)",
+        "PE-owner-directed dividend (creditor litigation risk)",
+        "OH plant closure / WARN exposure",
+        "CFO transition timing",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-020",
+    slug="eo-engineering-firm-bridge",
+    title="E&O — civil engineering firm, post-bridge-deficiency news",
+    summary="280-person civil eng firm, $58M revenue. State DOT flagged design deficiency on a 2019 bridge project. Renewal pressure + claim trigger uncertainty.",
+    scenario="""E&O renewal for a 280-person civil engineering firm.
+
+Operations:
+- Revenue: $58M (75% public infrastructure, 25% private)
+- Services: bridge design, roadway, structural, water/wastewater
+- Geography: TX, OK, AR, MS — heavy public-sector
+- Project mix: 38 active projects, avg fee $410K, largest $4.8M
+
+Triggering event:
+- 2025 Q4: TxDOT routine inspection of 2019 bridge (designed by insured) flagged ASR (alkali-silica reaction) in three bridge piers + deflection above design tolerance
+- TxDOT load-rating reduced from HL-93 to HS-15 (significant restriction)
+- Public press coverage in regional papers Nov–Dec 2025
+- TxDOT formal demand letter to the insured 2026-02-01 — preserving rights, no quantum yet
+- Forensic engineering consultant hired by TxDOT; preliminary report due Q3 2026
+
+Coverage history:
+- Architects & Engineers Professional Liability $5M per claim / $10M aggregate
+- 8-year policy history with current carrier (Hudson E&O)
+- No prior claims paid; 1 nuisance claim withdrawn in 2018
+
+Renewal indications:
+- Hudson (incumbent): $345K (+8%), keeps $5M/$10M, requires standalone defense reserves dedicated to the 2019 bridge matter
+- Markel: $385K, same limits, asks for separate retro date (12/31/2019) on the bridge project
+- Lexington: declines new business with this loss profile
+- ARC E&O specialty: $420K, larger $7.5M limit available
+
+Other:
+- Engineer-of-record (EOR) on 2019 bridge project: PE retired 2023, no longer with firm
+- Insured maintains tail/run-off coverage for retired licensees
+- Design QA process: peer review on all bridge projects, documented; 2019 project had peer review by senior structural PE still with firm
+- Insured purchased ProTech project-specific policy on 2 high-risk projects 2024 and 2025 — separate towers""",
+    primary_specialty="professional-liability",
+    additional_specialties=["construction"],
+    difficulty=4,
+    time_limit_minutes=50,
+    packet={
+        "Revenue": "$58M (75% public)",
+        "Headcount": "280",
+        "Trigger": "2019 bridge — ASR + deflection, TxDOT demand",
+        "Limits": "$5M / $10M",
+        "Indications": "Hudson +8% ($345K) · Markel $385K (retro carve) · Lexington declined · ARC $420K ($7.5M)",
+        "EOR": "Retired 2023; tail/run-off in place",
+        "Project-specific policies": "2 high-risk projects 2024–2025",
+    },
+    red_flag_options=[
+        "Open TxDOT demand (2019 bridge)",
+        "Material reduction in load rating (HL-93 → HS-15)",
+        "EOR no longer at firm",
+        "Public press coverage / venue risk",
+        "ASR — design or materials defect attribution",
+        "Limits adequacy ($5M / $10M)",
+        "Markel retro carve-out (coverage gap risk)",
+        "Forensic report pending — uncertain quantum",
+    ],
+    model_rationale="""This is a **needs more info / restructure** — the renewal needs to be placed, but the open TxDOT matter has structural coverage implications that need resolution before binding.
+
+**The claim-trigger question dominates.** A&E E&O policies are typically claims-made-and-reported. The TxDOT demand letter dated 2026-02-01 is a "claim" under most policy forms if it includes a written demand or asserts an act/error/omission. **The 2025-2026 policy year — under Hudson — almost certainly is the policy that responds to this matter.** This is good news (coverage exists), but the renewal pricing now has to assume:
+- $5M primary tower for this single claim — likely the limit, if forensic report comes back unfavorable to the insured.
+- Defense costs will erode the limit (most A&E E&O forms have defense-within-limits structure).
+- Aggregate at $10M is meaningful — a second claim emerging from the same project (e.g., separate bridge piers, a different highway authority) could share the aggregate.
+
+**Markel's retro carve-out is a coverage gap risk.** Excluding the 2019 bridge project from the new policy means: if a related but newly emerged issue surfaces (e.g., adjacent bridge designed by same EOR, same materials supplier), Markel won't respond. **Reject this carve-out** unless the insured has a project-specific tail policy on the 2019 bridge separately.
+
+**Limit adequacy.** $5M per claim is light for a TxDOT bridge load-rating reduction matter. Reasonable claim severity range:
+- Engineering investigation + remediation design: $250–600K
+- Pier repair / strengthening: $4–12M (depending on solution)
+- TxDOT lost-use damages + traffic-control during remediation: $200–800K
+- Defense costs: $400–900K
+**Total exposure range: $5M–$14M.** Recommend increasing limits to $7.5M / $15M via the ARC offering, or stacking a project-specific excess tower.
+
+**EOR retirement.** PE who signed the bridge plans retired 2023. Tail coverage in place is good. But the firm's exposure is unchanged — the firm carried the engineering, sealed the plans, and is the named defendant. Tail just covers the individual.
+
+**Peer review.** Documented peer review at the time of design is a strong defense. Confirm the peer reviewer's records still exist and the reviewer is available to testify (still with firm = good).
+
+**ASR causation.** ASR (alkali-silica reaction in concrete) is typically a materials issue (aggregate selection by contractor's supplier) rather than a design issue. If the forensic report attributes failure to materials rather than design specs, the firm's E&O exposure drops substantially. **Recommend insured engage parallel forensic counsel + expert** to develop the materials-causation narrative.
+
+**Pricing band.** $325K–$420K defensible. Hudson at $345K is mid-band and avoids the disruption of a market switch in an open-claim year. **Switching markets while a known claim is open is operationally risky** — the new market may push back on coverage analysis or require quota-share structures with the prior carrier.
+
+**Recommendation.** Bind Hudson at $345K subject to:
+1. **Increase limits to $7.5M / $15M** (negotiate ~$80K premium ad-on) — coverage adequacy is the bigger issue than the rate increase.
+2. Reject Markel's retro carve-out approach.
+3. Engage parallel forensic engineering counsel to develop materials-vs-design causation narrative.
+4. Confirm peer reviewer availability for litigation testimony.
+5. Confirm Hudson's defense-within-limits language and consider negotiating defense-outside-limits at the $5M-$15M layer.""",
+    model_premium_low=325000,
+    model_premium_high=420000,
+    model_recommendation="needs_more_info",
+    key_factors=[
+        {"label": "Claim trigger / TxDOT demand", "match": ["TxDOT", "demand", "trigger", "claims-made", "2026-02-01"], "weight": 1},
+        {"label": "Limits adequacy", "match": ["$5M", "$10M", "$7.5M", "$15M", "limits", "tower"], "weight": 1},
+        {"label": "Defense within limits", "match": ["defense within limits", "DWL", "erode", "DOL"], "weight": 1},
+        {"label": "Retro carve-out risk", "match": ["retro", "carve-out", "Markel", "exclude", "gap"], "weight": 1},
+        {"label": "ASR causation (materials vs design)", "match": ["ASR", "alkali", "materials", "design", "causation", "aggregate"], "weight": 1},
+        {"label": "EOR retirement / tail", "match": ["EOR", "retired", "tail", "run-off", "PE"], "weight": 1},
+        {"label": "Peer review defense", "match": ["peer review", "QA", "documented", "reviewer", "testify"], "weight": 1},
+        {"label": "Path forward / market continuity", "match": ["Hudson", "bind", "subject to", "switch", "continuity"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Open TxDOT demand (2019 bridge)",
+        "Material reduction in load rating (HL-93 → HS-15)",
+        "EOR no longer at firm",
+        "Limits adequacy ($5M / $10M)",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-021",
+    slug="eo-tech-saas-data-analytics",
+    title="E&O / tech — B2B analytics SaaS, recent AI-output liability question",
+    summary="Mid-market SaaS analytics platform shipping LLM-generated insights to enterprise clients. One client demand letter alleging bad recommendation = $14M loss. Tech E&O renewal.",
+    scenario="""Renewal submission for a B2B SaaS analytics company.
+
+Company:
+- $84M ARR, 312 enterprise customers (mid-market and larger)
+- Product: data-analytics platform with LLM-generated insights + recommendation engine
+- LLM: fine-tuned model on top of GPT-4 / Claude family, with retrieval-augmented generation
+- Customers in financial services, retail, healthcare (BAA exists for healthcare clients)
+
+Open matter:
+- 2026 Q1 client demand letter from a mid-market specialty lender alleging that an LLM-generated recommendation in the platform led to underwriting a $14M loan portfolio with elevated default rates; alleging recommended risk-tier was materially misclassified
+- Customer demand: $14M (claimed losses) + $2.4M reliance damages
+- Customer contract has standard limitation-of-liability clause capping vendor liability at 12 months of fees ($380K); customer arguing LOL is unenforceable due to "AI-output misrepresentation"
+
+Coverage:
+- Tech E&O: $10M per claim / $10M aggregate
+- Cyber liability: $10M per claim / $20M aggregate
+- Media liability: $2M / $2M
+- D&O private: $10M / $10M
+
+Loss history (5 yr):
+- 0 E&O claims paid
+- 1 minor cyber incident — phishing leading to $48K wire fraud, reported, no policy payment
+- 0 media claims
+- Current LLM-output demand is the first AI-attributable matter
+
+Renewal indications (tech E&O only):
+- Beazley Tech: $245K (+12%), excluding LLM-generated output unless human-in-the-loop documented
+- Coalition: $228K, no AI exclusion, requires a "model output validation" policy from insured
+- AXIS Tech: $310K, includes "algorithmic outcome" coverage explicitly, no exclusions
+- AIG Specialty (PrivateEdge Tech): $268K, silent on AI / LLM-specific exclusions
+
+Other:
+- Product changelog shows the LLM-recommendation feature was launched Q3 2024
+- Pre-launch validation testing documented (model performance vs holdout set), but post-launch monitoring less rigorous
+- Customer onboarding flow includes a disclaimer about LLM-generated content
+- 6 customers are healthcare (BAA in place, HIPAA controls audited Q2 2025)""",
+    primary_specialty="professional-liability",
+    additional_specialties=["cyber"],
+    difficulty=5,
+    time_limit_minutes=55,
+    packet={
+        "Company": "B2B SaaS analytics, $84M ARR, 312 customers",
+        "Open demand": "$14M + $2.4M, LLM-output recommendation",
+        "LOL cap": "$380K (12 mo fees) — customer challenging",
+        "Existing limits": "$10M E&O / $10M / per",
+        "Indications": "Beazley $245K (AI carve) · Coalition $228K (validation req) · AXIS $310K (algorithmic explicit) · AIG $268K (silent)",
+        "LLM launch": "Q3 2024",
+        "Validation": "Pre-launch documented; post-launch lighter",
+    },
+    red_flag_options=[
+        "Open LLM-output demand letter",
+        "LOL cap challenge — enforceability",
+        "Beazley AI exclusion",
+        "Post-launch monitoring gap",
+        "Healthcare BAA exposure if AI affects PHI workflow",
+        "Silent vs explicit AI coverage (AIG vs AXIS)",
+        "AI hallucination / accuracy risk",
+        "LLM dependency on third-party foundation models",
+    ],
+    model_rationale="""This is a **quote with modifications** — AXIS Tech at $310K with explicit "algorithmic outcome" coverage is worth the premium spread because the rest of the market is mispricing or excluding the most material exposure.
+
+**The LLM-output exposure is the entire renewal.** A demand letter alleging that an AI-generated recommendation caused $14M in losses is the canonical "AI E&O" claim. The market is *just* starting to price this in 2026, and there's wide variance:
+- **Beazley's "exclude LLM-generated output unless human-in-the-loop"** carve-out is a coverage trap. Most production AI/ML workflows do not have a human reviewing every output; the carve-out makes the policy non-responsive to the very thing the insured is using AI for. **Reject Beazley.**
+- **Coalition's "model output validation policy" requirement** is good underwriting hygiene, but if Coalition's policy is *silent* on AI and the open claim turns into litigation, the carrier may take a coverage position later. Validate.
+- **AIG silent**: in litigation, silent = ambiguity, which favors the insured under most contra-proferentem doctrine in US courts. But silence also means a claim will fight harder before paying.
+- **AXIS explicit "algorithmic outcome" coverage**: best for an insured with the current demand letter on file. The premium spread ($65K vs Coalition) is the cost of certainty.
+
+**Limit adequacy.** $10M per claim is light for a $14M + $2.4M demand. Even with successful LOL defense, settlement zones for these matters are running $3M–$8M. Recommend stacking $5M excess via Lloyd's facility (~$110–140K) for a $15M total tower.
+
+**LOL enforceability question.** Customer argues the standard limitation-of-liability clause shouldn't apply because of "AI-output misrepresentation." Strength of this argument depends on:
+- Contract language — does it carve out fraud / willful misconduct / gross negligence?
+- Whether the LLM-output is characterized as a "product" vs. "service" deliverable.
+- Forum + governing law (likely DE or NY; NY has been mixed on AI-output cases since 2024).
+- Documented disclaimers in onboarding flow help, but in a $14M+ claim, courts are increasingly willing to look past disclaimers in tort-vs-contract analysis.
+**Confirm the carrier's coverage counsel concurs the LOL defense is viable** — this affects expected severity.
+
+**Post-launch monitoring.** Q3 2024 launch + 18+ months of operation + light post-launch monitoring is a process gap. Standard for ML/LLM systems is:
+- Production output sampling + human review (e.g., 1% sample, weekly)
+- Drift detection (input distribution drift, output distribution drift)
+- Model performance dashboards reviewed monthly
+**Recommend this be a binding subjectivity** — both for the renewal and as evidence of "reasonable care" defense in the open claim.
+
+**Healthcare BAA.** 6 customers, BAA in place. If LLM-output workflow touches PHI for those customers, separate HIPAA-attributable exposure exists. Confirm operationally that LLM-output does/doesn't include PHI; if it does, audit the BAA scope.
+
+**Pricing band.** $230K–$330K defensible. AXIS at $310K is at the upper-mid band but covers the open exposure cleanly.
+
+**Recommendation.** Bind AXIS Tech at $310K subject to:
+1. Excess $5M xs $10M via Lloyd's facility (~$120K target) for $15M total tower.
+2. Post-launch model-monitoring program documented within 60 days (output sampling, drift detection, monthly review).
+3. Coverage counsel concurrence that LOL defense is viable on the open demand.
+4. BAA scope audit for healthcare customers' LLM-output workflows.
+5. Quarterly claim status calls through year 1.""",
+    model_premium_low=230000,
+    model_premium_high=460000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "LLM-output coverage approach", "match": ["LLM", "algorithmic", "AI exclusion", "AXIS", "silent"], "weight": 1},
+        {"label": "Open demand exposure", "match": ["$14M", "$2.4M", "demand", "lender", "recommendation"], "weight": 1},
+        {"label": "LOL enforceability", "match": ["LOL", "limitation of liability", "$380K", "enforceability"], "weight": 1},
+        {"label": "Limit adequacy / stacking", "match": ["$10M", "$15M", "tower", "stack", "excess"], "weight": 1},
+        {"label": "Post-launch monitoring", "match": ["monitoring", "drift", "sampling", "validation", "production"], "weight": 1},
+        {"label": "BAA / healthcare PHI", "match": ["BAA", "HIPAA", "PHI", "healthcare", "audit"], "weight": 1},
+        {"label": "Carrier comparison", "match": ["Beazley", "Coalition", "AXIS", "AIG", "carve-out"], "weight": 1},
+        {"label": "Path forward", "match": ["AXIS", "bind", "subject to", "approve"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Open LLM-output demand letter",
+        "LOL cap challenge — enforceability",
+        "Beazley AI exclusion",
+        "Post-launch monitoring gap",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-022",
+    slug="media-publisher-investigative-podcast",
+    title="Media liability — investigative-journalism podcast network",
+    summary="Podcast company publishing investigative true-crime + corporate-accountability series. Two cease-and-desist demands + one defamation suit filed.",
+    scenario="""Media liability renewal for a fast-growing podcast network specializing in investigative journalism.
+
+Company:
+- 32 active shows; 14 produced in-house, 18 licensed/distributed
+- Revenue: $26M (60% ad, 30% subscription, 10% syndication)
+- Total downloads/month: ~48M
+- 5 staff investigative producers + 8 contract investigators
+- Editorial policies: documented, fact-check protocol, legal review on high-risk episodes
+
+Open matters:
+- Defamation suit filed Q4 2025 in CA Superior Court by a former private-equity executive named in an episode about a 2018 acquisition; demand $4.5M + retraction; case in motion-to-dismiss stage on anti-SLAPP grounds (motion filed by insured; CA hearing date Q3 2026)
+- Cease-and-desist letter Q1 2026 from a corporate subject of an unaired episode about labor practices; threatening pre-publication injunction
+- Cease-and-desist letter Q1 2026 from a true-crime episode subject's attorney alleging right-of-publicity violation (FL)
+
+Coverage requested:
+- Media liability $5M / $10M (defamation, IP infringement, right of publicity, false light)
+- Errors & omissions in publishing
+- Pre-publication review services (limit reimbursement)
+- Specialty privacy coverage for source-protection-related claims
+
+Loss history (5 yr):
+- 0 paid claims
+- 2 cease-and-desist matters resolved without filing
+- The current defamation suit is the first filed claim
+
+Renewal indications:
+- Beazley Media: $185K (+18%), keeps $5M/$10M, requires legal-review documentation on episodes with named individuals
+- AXIS Media: $215K (+24%), includes broader anti-SLAPP defense reimbursement
+- Hiscox Media: $172K, but exclusions for "intentionally misleading editing"
+- Markel: $198K (+11%)
+
+Other:
+- Anti-SLAPP statute strength varies: CA strong, FL weaker, NY strong, TX strong (post-2019 TCPA reform)
+- 2 of 14 in-house shows have annual ad revenue >$1M each
+- One show is currently developing a series on a Fortune 100 company's labor practices — legal review ongoing
+- Source-protection: insured uses Signal + Secure Drop, has documented shield-law policies for state-by-state coverage""",
+    primary_specialty="media-liability",
+    additional_specialties=["multi-jurisdictional"],
+    difficulty=4,
+    time_limit_minutes=45,
+    packet={
+        "Shows": "32 (14 in-house)",
+        "Downloads/mo": "~48M",
+        "Revenue": "$26M",
+        "Open suit": "CA defamation $4.5M + retraction (anti-SLAPP filed)",
+        "C&D letters": "2 (labor + right of publicity)",
+        "Editorial process": "Fact-check + legal review documented",
+        "Indications": "Beazley $185K · AXIS $215K (anti-SLAPP) · Hiscox $172K (exclusion) · Markel $198K",
+        "Anti-SLAPP venues": "CA / NY / TX strong; FL weaker",
+    },
+    red_flag_options=[
+        "Open CA defamation suit",
+        "Hiscox 'intentionally misleading editing' exclusion",
+        "FL right-of-publicity (weaker anti-SLAPP)",
+        "Fortune 100 episode in development",
+        "Source-protection / shield-law variance",
+        "Pre-publication injunction threat",
+        "Contract investigator IP ownership",
+        "Defamation venue selection (CA vs others)",
+    ],
+    model_rationale="""This is a **quote with modifications** — AXIS Media at $215K with the broader anti-SLAPP defense reimbursement is the right structural answer. Anti-SLAPP funding is the single most valuable feature for an investigative-journalism operation.
+
+**Anti-SLAPP is the defense lever.** California's anti-SLAPP statute (CCP §425.16) allows defendants to file a special motion to strike at the pleading stage, halting discovery and shifting fees to the plaintiff if successful. **Successful anti-SLAPP motions in defamation cases against journalism defendants run 60–75%** at the trial-court level in CA; reversal rate on appeal is low. **For an investigative podcast network operating across multiple states, the carrier with the strongest anti-SLAPP defense funding is the structurally right choice.**
+
+**Hiscox's "intentionally misleading editing" exclusion** is a real problem. Investigative journalism by definition involves editing — selection of clips, narration framing, structural choices. Plaintiffs in podcast defamation cases routinely allege "selective editing" as the basis for falsity. **This exclusion creates a tail of coverage disputes that destroys the value of the policy.** Reject Hiscox.
+
+**Beazley's legal-review documentation requirement** is operationally sound for an editorial shop already running legal review. The friction is acceptable.
+
+**Open CA defamation suit.** Anti-SLAPP motion in motion-to-dismiss stage is the right posture. **Confirm whether the case is in the right venue** — if the PE executive is not a CA resident and the company being investigated is not based in CA, defendants sometimes move to transfer to a less plaintiff-friendly venue. Get the venue analysis from outside counsel.
+
+**Pre-publication C&D / injunction threat.** Pre-publication injunctions in the US are presumptively unconstitutional under Near v. Minnesota (1931). The threat is real-cost to defend (legal fees pre-publication) but extraordinarily unlikely to succeed. **Confirm the media policy covers pre-publication defense costs and not just post-publication claims** — many forms restrict to "published" content; insured's wholesale shop needs a "pre-publication" rider.
+
+**Right-of-publicity (FL).** Florida's right-of-publicity statute (§540.08) is more plaintiff-friendly than CA's. The C&D letter is real exposure if the episode used the subject's name/likeness without consent and not in a documented news/commentary context. Editorial defense is strong if the show clearly is reporting on facts of public interest, but a misstep in usage (e.g., a re-enactment or AI-generated voice clip) is much harder to defend.
+
+**Fortune 100 in development.** Pre-publication coverage matters here. **Underwrite this episode separately:**
+- Source-protection protocols verified
+- Pre-publication legal review by qualified media counsel
+- Subject notice + response opportunity documented (canonical journalism defense practice)
+
+**Pricing band.** $175K–$240K defensible. AXIS at $215K is at the upper-mid band but justified by anti-SLAPP defense funding.
+
+**Recommendation.** Bind AXIS Media at $215K subject to:
+1. Confirm anti-SLAPP defense funding in CA, NY, TX, IL — at least 4 states with strong statutes.
+2. Pre-publication coverage rider explicit in policy form.
+3. Episode-specific risk review for the Fortune 100 series before publication; carrier briefed.
+4. Contract-investigator IP assignment + indemnification language reviewed (carrier counsel).
+5. State-by-state shield-law policy refresh annually.""",
+    model_premium_low=175000,
+    model_premium_high=240000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "Anti-SLAPP defense funding", "match": ["anti-SLAPP", "SLAPP", "CCP §425.16", "motion to strike", "fee shift"], "weight": 1},
+        {"label": "Hiscox exclusion review", "match": ["Hiscox", "exclusion", "misleading", "editing", "carve-out"], "weight": 1},
+        {"label": "Open CA defamation", "match": ["CA", "California", "defamation", "$4.5M", "venue", "PE executive"], "weight": 1},
+        {"label": "Pre-publication injunction / Near v. Minnesota", "match": ["pre-publication", "injunction", "Near v. Minnesota", "prior restraint"], "weight": 1},
+        {"label": "FL right-of-publicity", "match": ["right of publicity", "Florida", "FL", "§540.08", "likeness"], "weight": 1},
+        {"label": "Editorial / fact-check process", "match": ["fact-check", "legal review", "editorial", "documented"], "weight": 1},
+        {"label": "Source protection / shield law", "match": ["shield", "source", "Signal", "SecureDrop", "protection"], "weight": 1},
+        {"label": "Path forward", "match": ["AXIS", "bind", "subject to", "approve"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Open CA defamation suit",
+        "Hiscox 'intentionally misleading editing' exclusion",
+        "FL right-of-publicity (weaker anti-SLAPP)",
+        "Pre-publication injunction threat",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-023",
+    slug="media-influencer-ai-likeness",
+    title="Media — influencer-marketing platform, AI-generated likeness disputes",
+    summary="Influencer marketing SaaS with built-in AI tools that generate variant videos using creator likenesses. Two creator demands + one celebrity C&D. Renew media wrap?",
+    scenario="""Media wrap renewal for an influencer-marketing platform.
+
+Product:
+- SaaS platform: brands run campaigns; creators (influencers) deliver content; platform handles workflows
+- New feature (launched Q2 2025): AI Variant Generator — uses creator-submitted likeness data to produce additional video variants for A/B testing, with creator's contractual consent
+- 18,000 active creators, 1,400 brand customers
+- Revenue: $42M
+
+Coverage requested:
+- Media liability $5M / $10M
+- IP / right-of-publicity coverage
+- Privacy coverage (BIPA, CCPA, state biometric statutes)
+- Defamation / false-light
+- Tech E&O integration (separate placement)
+
+Triggering issues:
+- 2 creator demand letters (Q4 2025): both alleging AI variants used the creator's likeness in campaigns the creator did not specifically approve (claim: contract gave "general AI variant" consent but specific campaign context wasn't pre-approved)
+- 1 C&D from a major celebrity (Q1 2026) alleging the platform's AI Variant Generator can be used to produce content resembling celebrities who never consented; demand to disable likeness-similarity detection bypass
+
+Recent BIPA litigation context:
+- IL BIPA (740 ILCS 14) statutory damages $1K–$5K per violation; recent decisions (Cothron, 2023) allow per-scan damages
+- TX HB 2843 (capture/use of biometric identifier) — $25K per violation
+- CA BIPA-like statute (CCPA + new biometric provisions) limited enforcement so far
+
+Coverage history:
+- Media wrap with Coalition: $5M / $10M, $135K expiring premium
+- 0 paid claims
+- 1 prior C&D resolved (2024, removed creator content within 24 hrs)
+
+Renewal indications:
+- Coalition: $208K (+54%), keeps $5M/$10M, requires "biometric consent workflow" subjectivity
+- Beazley: $245K, $5M/$10M, requires likeness-similarity-detection technology to be implemented within 90 days
+- AXIS: $278K, $5M/$10M, BIPA sublimit at $1M (rest of media full-limit)
+- Travelers Cyber & Media: declines AI-variant exposure
+
+Other:
+- IL is 22% of creator base, 18% of campaign volume — direct BIPA exposure
+- Platform stores biometric identifiers (facial-feature vectors) on the AI-variant feature only
+- Consent flows updated Q3 2025 but not re-consented to existing 18K creators
+- Customer contracts (brands) require platform to indemnify against right-of-publicity claims""",
+    primary_specialty="media-liability",
+    additional_specialties=["cyber"],
+    difficulty=5,
+    time_limit_minutes=55,
+    packet={
+        "Platform": "18K creators, 1.4K brands, $42M revenue",
+        "Product flag": "AI Variant Generator (Q2 2025 launch)",
+        "Open demands": "2 creator + 1 celebrity C&D",
+        "Existing limits": "$5M / $10M ($135K expiring)",
+        "IL BIPA exposure": "22% creators in IL",
+        "Biometric storage": "Facial-feature vectors (AI Variant only)",
+        "Indications": "Coalition $208K (+54%) · Beazley $245K · AXIS $278K (BIPA $1M sub) · Travelers declined",
+        "Brand indemnity": "Platform indemnifies brand for ROP claims",
+    },
+    red_flag_options=[
+        "BIPA per-scan statutory damages (Cothron)",
+        "Re-consent not pushed to existing creators",
+        "Celebrity likeness-similarity bypass",
+        "AXIS BIPA $1M sublimit",
+        "AI-variant 'general consent' contract ambiguity",
+        "Travelers AI-variant decline (capacity signal)",
+        "Brand indemnity flowing back",
+        "TX HB 2843 $25K per violation exposure",
+    ],
+    model_rationale="""This is a **needs more info / restructure** — none of the indications cleanly addresses both BIPA exposure and the AI-variant consent gap. Restructure with a layered approach.
+
+**BIPA per-scan damages dominate the math.** Under Cothron v. White Castle (IL Sup Ct, 2023), each unauthorized biometric scan creates a separate cause of action. For a platform storing facial-feature vectors for 18,000 creators with 22% in IL (~4,000 creators), even at minimum $1,000 statutory damages and 5 unauthorized "scans" per creator, theoretical exposure is **~$20M for the IL cohort alone before defense costs**. Real-world settlements have been 5–25% of theoretical max, so practical exposure $1M–$5M per claim cycle.
+
+**AXIS's $1M BIPA sublimit is materially inadequate.** Even at the discount-from-theoretical numbers above, $1M caps too early. **Reject AXIS as quoted.**
+
+**Coalition's "biometric consent workflow" subjectivity** is the right structural fix. The "general AI variant" consent that the platform has from creators is precisely the kind of catch-all that BIPA case law has been finding insufficient — IL requires *specific*, written, informed consent before collection AND a publicly available retention/destruction schedule. **Re-consent flow + retention schedule are non-negotiable.**
+
+**Beazley's likeness-similarity-detection requirement** addresses the celebrity C&D issue. Platforms with AI image/video generation now use perceptual hashing + facial-embedding distance checks against a "do-not-use" list (similar to Spawning AI's "Have I Been Trained" or facial-recognition deny-lists). 90-day timeline to implement is tight but doable.
+
+**The two creator demand letters** are foreseeable from the contract structure. "General AI variant consent" is contract litigation 101 — courts are increasingly resolving ambiguities in favor of the natural person (creator), especially when biometric data is involved. **Expect 1–3 more similar claims within the next 12 months unless re-consent flow is deployed.** Settlement zones for these: $25K–$150K per claim if the platform takes early.
+
+**Celebrity C&D.** Different exposure pattern. Likeness-similarity detection ("can the AI Variant Generator produce content that looks substantially similar to a non-consenting celebrity?") is the gating question. Once a celebrity can demonstrate this is possible, the C&D escalates to a federal Lanham Act false endorsement claim. **Disable similarity bypass + publish public takedown channel is the operational answer.**
+
+**Brand indemnity flowing back.** Platform contractually indemnifies brand customers for ROP claims. If a brand customer is sued by a creator over a campaign, the platform owes defense + indemnity. This is a separate book of expected claims. **Confirm carrier's coverage responds to insured's indemnity obligations to third parties, not just direct claims against insured.**
+
+**Structuring recommendation.**
+1. **Primary $5M media** — Coalition $208K with biometric consent workflow subjectivity.
+2. **$5M excess of $5M** — Lloyd's media + cyber facility, target $115K, no BIPA sublimit.
+3. **Side-by-side BIPA-specific tower:** $10M excess BIPA layer from a Lloyd's syndicate (Apollo or Beazley's syndicated BIPA facility), target $190K. Sometimes structured as "biometric privacy specific."
+4. **Tech E&O coordination:** ensure the AI Variant Generator is covered under either media or tech E&O without coverage-allocation disputes between the two policies.
+
+Total program target: **$460K–$580K** for a $20M+ tower with BIPA-adequate sublimits.
+
+**Recommendation.** Restructure away from single-policy approach. Bind Coalition primary $5M ($208K), $5M xs $5M media via Lloyd's (~$115K), BIPA-specific $10M layer (~$190K). Subjectivities:
+1. Re-consent flow pushed to all 18K creators within 90 days, with BIPA-compliant disclosure + retention schedule.
+2. Likeness-similarity detection (perceptual hashing + facial-embedding distance) deployed within 90 days.
+3. Public takedown channel for non-consenting third parties.
+4. Contract template updated: AI variant consent must be campaign-specific, not blanket.
+5. Quarterly claim review on BIPA exposure with carrier panel counsel.""",
+    model_premium_low=460000,
+    model_premium_high=580000,
+    model_recommendation="needs_more_info",
+    key_factors=[
+        {"label": "BIPA per-scan damages (Cothron)", "match": ["BIPA", "Cothron", "per-scan", "740 ILCS", "statutory damages"], "weight": 1},
+        {"label": "Re-consent workflow", "match": ["re-consent", "consent", "BIPA", "retention", "schedule"], "weight": 1},
+        {"label": "Likeness-similarity detection", "match": ["likeness", "similarity", "perceptual", "facial embedding", "deny-list"], "weight": 1},
+        {"label": "AXIS BIPA sublimit inadequacy", "match": ["AXIS", "sublimit", "$1M", "BIPA", "inadequate"], "weight": 1},
+        {"label": "Brand indemnity tail", "match": ["indemnity", "indemnification", "brand", "third-party", "Lanham"], "weight": 1},
+        {"label": "Tower structuring", "match": ["primary", "excess", "Lloyd", "Apollo", "tower", "stack"], "weight": 1},
+        {"label": "Tech E&O coordination", "match": ["tech E&O", "coordination", "allocation", "coverage"], "weight": 1},
+        {"label": "Path forward / restructure", "match": ["restructure", "needs", "subject to", "subjectivities"], "weight": 1},
+    ],
+    model_red_flags=[
+        "BIPA per-scan statutory damages (Cothron)",
+        "Re-consent not pushed to existing creators",
+        "Celebrity likeness-similarity bypass",
+        "AXIS BIPA $1M sublimit",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-024",
+    slug="cyber-ransomware-mid-market-mfg",
+    title="Cyber — $420M mid-market manufacturer, post-ransomware renewal",
+    summary="Manufacturer hit by ransomware in 2025, $9.4M total cost. 12 months of remediation. Carriers wary; renewal under stress. Place the new tower.",
+    scenario="""Cyber renewal for a $420M revenue industrial manufacturer that suffered a ransomware event in Q2 2025.
+
+Event:
+- Initial access: phishing → BlackCat/ALPHV ransomware
+- 4 days production downtime across 3 plants
+- Ransom demand: $4.8M (paid $1.4M after negotiation)
+- Forensics + IR + restore: $1.9M
+- Business interruption: $3.4M (measured against rolling 24-mo average)
+- Notification + regulatory + class-action settlement (employee PII exposure): $2.2M
+- Total cost: $9.4M (primary $5M + excess $5M layers fully blown)
+
+Coverage history:
+- Pre-event: $5M primary + $10M excess ($20M total tower)
+- Pre-event premium: $182K total
+- Carrier: Coalition (primary), Beazley + Allied World (excess)
+
+Post-event remediation (over 12 months):
+- Hired CISO (replaced previous IT director who was IT/Security combined)
+- Deployed CrowdStrike Falcon + Microsoft Defender for Endpoint
+- Implemented MFA on all remote access + privileged accounts (was partial pre-event)
+- Network segmentation: ICS / production / corporate isolated (was flat pre-event)
+- Backups: now 3-2-1, immutable copies in separate Azure tenant
+- Cyber tabletop exercises quarterly
+- Phishing-resistant MFA on 60% of users (FIDO2 / passkeys), rolling to 100% by Q3 2026
+- SOC managed service (Arctic Wolf) deployed Q4 2025
+
+Renewal indications (post-remediation):
+- Coalition (incumbent): $385K primary $5M, requires $250K SIR (was $50K), excludes prior known vulnerabilities not yet patched
+- AXIS Cyber: $410K primary $5M, $100K SIR, no known-vuln exclusion but requires quarterly attestation
+- Beazley: $420K primary $5M, $150K SIR
+- AIG Cyber: $445K primary $5M, broad coverage but pricing premium
+- Excess market: $10M xs $5M available at $215K–$285K across 4 markets
+
+Other:
+- 4 employees from impacted plants filed class action; settled $2.2M as noted
+- 12 customers exercised contractual audit rights post-incident
+- Cyber insurance application: insured candid about all 12-month remediation; full attestation packet provided""",
+    primary_specialty="cyber",
+    additional_specialties=["complex-casualty"],
+    difficulty=4,
+    time_limit_minutes=50,
+    packet={
+        "Revenue": "$420M (mfg, 3 plants)",
+        "2025 ransomware total cost": "$9.4M",
+        "Pre-event tower / premium": "$20M / $182K",
+        "Remediation": "CISO + CrowdStrike + MFA + segmentation + immutable backups + SOC",
+        "Phishing-resistant MFA": "60% (target 100% Q3 2026)",
+        "Indications (primary $5M)": "Coalition $385K ($250K SIR, KV excl) · AXIS $410K ($100K, attest) · Beazley $420K ($150K) · AIG $445K",
+        "Excess $10M xs $5M": "$215K–$285K",
+    },
+    red_flag_options=[
+        "Prior-event severity ($9.4M)",
+        "Coalition known-vuln exclusion",
+        "Class action settlement (PII)",
+        "Phishing-resistant MFA at 60%",
+        "ICS / OT exposure (manufacturing)",
+        "Customer audit-right activations",
+        "BlackCat / ransomware-as-a-service threat actor",
+        "SIR increase substantial vs pre-event",
+    ],
+    model_rationale="""This is an **approve with modifications** — AXIS Cyber at $410K primary with the quarterly attestation requirement is the structurally correct call, paired with $10M excess from a stable market.
+
+**Coalition's known-vulnerability exclusion is dangerous.** Post-event, every cyber insurance applicant produces a remediation list. The Coalition exclusion of "prior known vulnerabilities not yet patched" creates a litigation trap: any pending CVE on the network as of binding becomes a potential coverage dispute. For a manufacturer with ICS / OT systems where patching cadence is constrained by operational windows, this exclusion is particularly problematic. **Reject Coalition's primary as-quoted.**
+
+**AXIS's quarterly attestation** is operationally heavier but coverage-wise cleaner. Insured submits a quarterly attestation that documented controls remain in place + reports material changes. Standard cyber insurance practice in 2026 for post-event renewals; insured already has the data via Arctic Wolf + CrowdStrike consoles.
+
+**The remediation is genuinely strong.** CrowdStrike + Defender + MFA + immutable backups + segmentation + tabletops + managed SOC + CISO hire is a mature stack. The phishing-resistant MFA at 60% is the gap; the rollout-to-100% by Q3 2026 is appropriate. **Make this a binding condition.**
+
+**SIR increase.** Pre-event $50K, now Coalition $250K / AXIS $100K / Beazley $150K. The right read: $100K AXIS is reasonable for the loss-frequency improvement post-remediation; $250K Coalition is too punitive given remediation depth. **AXIS wins on SIR economics.**
+
+**Manufacturer-specific exposure.** ICS / OT systems carry distinct cyber risk:
+- Ransomware → production downtime (BI exposure)
+- IP theft → manufacturing process / design files (the trade-secret tail)
+- Safety system manipulation (low frequency, catastrophic severity)
+- Air-gap erosion (IT/OT convergence is the trend)
+**Confirm AXIS form responds to:**
+- BI from production stoppage (not just direct cyber-revenue)
+- ICS/OT-specific malware (some forms have OT exclusions)
+- Trade secret IP cover
+- Bricking coverage (some attacks damage firmware/hardware)
+
+**Tower sizing.** Pre-event $20M; the actual event was $9.4M. **A $20M tower is right-sized for the next event severity profile, especially with manufacturer revenue and PII exposure.** Place full $20M.
+
+**Pricing band (total).**
+- Primary $5M: $385K–$445K range; AXIS $410K mid-range.
+- Excess $10M xs $5M: $215K–$285K; target $245K for mid-market panel.
+- Excess $5M xs $15M: $115K–$160K from a quota-share Lloyd's facility, target $130K.
+- **Total: $760K–$835K defensible** for a $20M tower (versus $182K pre-event — material increase reflecting industry-wide hardening + this specific risk's history).
+
+**Recommendation.** Bind AXIS Cyber primary $5M at $410K subject to:
+1. Phishing-resistant MFA at 100% by Q3 2026 (binding condition; carrier audit at month 9).
+2. Quarterly attestation maintained; failure triggers coverage review.
+3. ICS / OT specific malware coverage explicit in policy form.
+4. BI definition includes production-stoppage (not just direct cyber-revenue).
+5. Stack $10M xs $5M (target $245K) + $5M xs $15M (target $130K) for $20M tower.
+6. Annual penetration test + table-top exercise documented.
+7. Re-rate at audit if security posture degrades materially.""",
+    model_premium_low=760000,
+    model_premium_high=835000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "Known-vulnerability exclusion risk", "match": ["known", "vulnerability", "CVE", "exclusion", "Coalition"], "weight": 1},
+        {"label": "Phishing-resistant MFA gap", "match": ["phishing-resistant", "MFA", "FIDO2", "passkey", "60%", "100%"], "weight": 1},
+        {"label": "ICS / OT exposure", "match": ["ICS", "OT", "operational technology", "manufacturing", "production"], "weight": 1},
+        {"label": "Quarterly attestation framework", "match": ["attestation", "AXIS", "quarterly", "control"], "weight": 1},
+        {"label": "SIR analysis", "match": ["SIR", "$50K", "$100K", "$250K", "retention"], "weight": 1},
+        {"label": "BI scope / production stoppage", "match": ["BI", "business interruption", "production", "downtime"], "weight": 1},
+        {"label": "Tower sizing", "match": ["$20M", "tower", "primary $5M", "excess $10M", "$15M"], "weight": 1},
+        {"label": "Path forward", "match": ["AXIS", "bind", "subject to", "approve"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Prior-event severity ($9.4M)",
+        "Coalition known-vuln exclusion",
+        "Phishing-resistant MFA at 60%",
+        "ICS / OT exposure (manufacturing)",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-025",
+    slug="cyber-healthcare-multi-state-hipaa",
+    title="Cyber — multi-state regional health system, post-HIPAA finding",
+    summary="Regional 4-hospital health system. 2025 OCR HIPAA audit found gaps. Cyber renewal during open OCR matter + class-action threat.",
+    scenario="""Cyber renewal for a regional health system with 4 hospitals + 26 outpatient clinics across IL, IN, KY.
+
+Operations:
+- Revenue: $1.8B
+- Beds: 980 acute-care
+- Employees: 11,400
+- EHR: Epic
+- Cloud workloads: hybrid (Azure primary, on-prem for clinical applications)
+
+OCR HIPAA Audit (Q3 2025):
+- Triggered after a 2024 unrelated minor incident
+- Findings:
+  * Risk analysis not comprehensively current (last full enterprise-wide risk analysis 2021)
+  * Access controls insufficient for elevated-privilege workforce (IT admins, certain physicians)
+  * BAA documentation gaps with 8 of ~280 business associates
+- Resolution agreement under negotiation; OCR proposing $2.6M monetary penalty + 3-year corrective action plan
+- No known ePHI breach event from these findings
+
+Other 2025 events:
+- Minor email-account compromise of 2 physicians' inboxes (April 2025), ~840 patients' ePHI exposed (limited fields), notified per HIPAA Breach Notification Rule
+- Class action filed Q4 2025 in IL by 14 plaintiffs from the 840 — alleging negligence, breach of contract, IL Personal Information Protection Act (PIPA), Genetic Information Privacy Act (GIPA, where genetic markers were in records)
+- Class certification pending; settlement zone projected $2M–$8M
+
+Coverage history:
+- Cyber + privacy: $25M / $25M tower, $940K expiring premium
+- Multiple layers: Beazley primary $10M, Aon HIE excess $10M, Lloyd's $5M
+- 0 claims paid pre-2025
+
+Renewal indications:
+- Beazley: $1.28M primary $10M (+36%), excludes regulatory penalties from open OCR matter
+- AXIS: $1.18M primary $10M, includes regulatory defense, sublimits regulatory penalties to $1M
+- AIG: $1.42M primary $10M, broadest coverage on regulatory, no exclusion of open OCR
+- Coalition: $1.12M primary $10M, excludes both OCR + the open class action
+
+Excess market (xs $10M):
+- $5M xs $10M: $260K–$340K across 3 markets
+- $10M xs $15M: $370K–$480K
+- Top layer (Side A-like, regulatory carve-back): $185K for $5M
+
+Other:
+- Insured's CFO + IT admin both have visibility into the open OCR resolution agreement
+- Open question whether GIPA claims (genetic-info specific) trigger separate IL statutory damages ($2,500–$15,000 per violation)
+- Healthcare ransomware industry-wide loss-cost trend +28% in 2025""",
+    primary_specialty="cyber",
+    additional_specialties=["healthcare", "multi-jurisdictional"],
+    difficulty=5,
+    time_limit_minutes=60,
+    packet={
+        "Health system": "4 hospitals + 26 clinics, $1.8B revenue",
+        "OCR findings": "Risk analysis stale, access controls, BAA gaps",
+        "OCR proposed penalty": "$2.6M + 3-yr CAP",
+        "2025 breach": "840 patients ePHI (limited fields), email compromise",
+        "Class action": "IL, 14 plaintiffs, PIPA + GIPA — settlement $2M–$8M",
+        "Existing tower / premium": "$25M / $940K",
+        "Primary $10M indications": "Beazley $1.28M (OCR excl) · AXIS $1.18M (reg sub $1M) · AIG $1.42M (broad) · Coalition $1.12M (both excl)",
+    },
+    red_flag_options=[
+        "Open OCR matter ($2.6M + CAP)",
+        "Beazley OCR exclusion",
+        "Coalition double exclusion",
+        "GIPA per-violation damages (IL)",
+        "Stale risk analysis (2021)",
+        "Class certification pending",
+        "Multi-state PIPA exposure",
+        "Healthcare industry loss-cost trend",
+    ],
+    model_rationale="""This is a **quote with modifications** — AIG at $1.42M primary is the structurally correct answer because the open OCR matter requires explicit coverage, not exclusion. The premium spread is justified.
+
+**The OCR exclusion is the binary.** Two carriers (Coalition, Beazley) exclude the open OCR matter from coverage. **In a year when the OCR has proposed a $2.6M penalty + 3-year CAP, an exclusion means the policy doesn't respond to defense costs, settlement negotiations, or related litigation.** AXIS's $1M sublimit on regulatory penalties is better but still inadequate against a $2.6M OCR proposal.
+
+**AIG's no-exclusion-of-open-OCR approach** is the underwriting that fits this risk. The premium spread ($240K higher than the cheapest indication) buys:
+- Defense cost coverage for OCR engagement
+- Settlement negotiation support
+- Coverage if OCR proposal expands during the resolution process
+
+**Class action overlap with OCR.** The 14-plaintiff class action in IL alleges PIPA + GIPA — both state-statutory claims with per-violation damages. GIPA specifically (765 ILCS 33/) carries $2,500–$15,000 per violation depending on intentional/negligent. For 840 affected patients with potential genetic info exposure, theoretical exposure is significant; settlement zones of $2M–$8M are conservative. **Confirm AIG's policy form responds to GIPA + PIPA claims as covered "regulatory" and "claim" events.**
+
+**Risk analysis remediation.** Stale 2021 risk analysis is the OCR's biggest finding. **Immediate priority before binding:**
+- Engage qualified HIPAA security risk analysis firm (e.g., Clearwater Compliance, Coalfire) for full enterprise-wide RA
+- 90-day completion timeline
+- Submit findings to OCR as part of CAP resolution
+This is operational work, not insurance work, but it's the predicate for closing OCR and reducing renewal pricing in year 2.
+
+**Access controls.** Elevated-privilege workforce (IT admins, certain physicians) requires:
+- Privileged Access Management (PAM) — CyberArk or BeyondTrust deployment
+- Just-in-time access for production EHR admin functions
+- Session recording for elevated access
+- Quarterly access certification
+
+**BAA documentation gap.** 8 of 280 BAs without current BAA documentation is a remediable finding. Standard BAA-update workflow + automated tracking should close this in 60 days.
+
+**GIPA-specific exposure.** Illinois GIPA is one of two state genetic-info statutes (CA has CalGINA). The class action raises GIPA because some patient records included genetic test results. **Settlement zones could materially exceed the $2M–$8M projection if class certification is granted and includes the GIPA cohort.** Recommend separate retention reserves.
+
+**Pricing band.** $1.18M–$1.50M for primary $10M, $1.0M–$1.2M for excess $15M xs $10M. **Total tower: $2.18M–$2.70M** — significant increase from $940K but justified by:
+- Open OCR matter
+- Class action exposure
+- Healthcare industry loss-cost trend +28%
+- Risk-analysis remediation pending
+
+**Recommendation.** Bind AIG primary $10M at $1.42M; stack $5M xs $10M at AXIS $260K + $10M xs $15M from Lloyd's panel $420K + top Side-A-like layer $185K. **Total ~$2.29M** for $25M tower subject to:
+1. Risk analysis completed within 90 days; findings shared with OCR.
+2. PAM deployment for elevated access within 6 months.
+3. BAA gap closure within 60 days.
+4. Quarterly OCR matter status update to carrier panel counsel.
+5. Confirm GIPA + PIPA claims covered as regulatory / claim events under AIG form.
+6. Re-rate at year 2 if OCR resolution closes <$2M and class action closes <$5M.""",
+    model_premium_low=2180000,
+    model_premium_high=2700000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "OCR exclusion vs coverage", "match": ["OCR", "exclusion", "Beazley", "Coalition", "regulatory"], "weight": 1},
+        {"label": "OCR proposed penalty", "match": ["$2.6M", "OCR", "CAP", "corrective action", "resolution"], "weight": 1},
+        {"label": "GIPA / PIPA exposure (IL)", "match": ["GIPA", "PIPA", "Illinois", "765 ILCS", "genetic", "per-violation"], "weight": 1},
+        {"label": "Risk analysis remediation", "match": ["risk analysis", "Clearwater", "Coalfire", "stale", "2021", "enterprise-wide"], "weight": 1},
+        {"label": "Access control / PAM", "match": ["PAM", "privileged access", "CyberArk", "BeyondTrust", "just-in-time"], "weight": 1},
+        {"label": "BAA gap", "match": ["BAA", "business associate", "280", "documentation"], "weight": 1},
+        {"label": "Class action settlement zone", "match": ["class action", "settlement", "$2M-$8M", "certification"], "weight": 1},
+        {"label": "Tower sizing", "match": ["$25M", "tower", "primary", "excess", "$10M", "$15M"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Open OCR matter ($2.6M + CAP)",
+        "Beazley OCR exclusion",
+        "GIPA per-violation damages (IL)",
+        "Stale risk analysis (2021)",
+    ],
+))
+
+
+# === BATCH 4: Aviation + Energy + Green Energy + Construction (8 cases) =====
+
+cases.append(Case(
+    code="DOJO-2026-026",
+    slug="aviation-part-135-charter-jet",
+    title="Aviation — Part 135 charter operator, 18-aircraft mid-size jet fleet",
+    summary="Part 135 charter operator, 18 mid-size jets (Citation Excel, Hawker 850), recent runway excursion. Hull + liability renewal at $250M smooth.",
+    scenario="""Renewal submission for a Part 135 on-demand jet charter operator.
+
+Fleet:
+- 18 aircraft: 12 Citation Excel/XLS, 4 Hawker 850XP, 2 Phenom 300
+- Hull values: $4.8M (Phenoms) to $14.5M (newer XLS+)
+- Total fleet hull value: ~$185M
+- Bases: HOU, ATL, DFW (Part 135 ops cert)
+
+Coverage requested:
+- Hull (all-risks, agreed value)
+- Liability $250M smooth (combined single limit, BI + PD + PAX)
+- Spare parts, war / hijacking, search-and-rescue
+
+Operations:
+- 11,400 flight hours in 2025 (avg 633 hrs/aircraft)
+- ~3,200 paying charter passengers
+- Pilot complement: 64 (40 captains, 24 SICs); all ATP, type-rated
+- Maintenance: Part 145 in-house at HOU base + outsourced to TAG and Duncan for heavy
+
+Loss history (5 yr):
+- 2024 runway excursion at MMK (Mahackemo Memorial, no injuries) — aircraft hull $1.4M damage, paid; PD to runway lights $185K
+- 2023 minor bird strike, hull damage $94K
+- 2022 PAX leg injury from turbulence (settled $128K)
+- 2021 nuisance baggage claim $24K
+- 0 fatalities, 0 third-party BI
+
+FAA / NTSB findings on 2024 excursion:
+- Crew used max-effort braking; runway contaminated (rain) but within limits
+- Final report (Jan 2026): probable cause "captain's failure to commence go-around when landing performance criteria not met"; contributing factor: "operator's standard operating procedures did not require performance landing assessment with current conditions"
+- FAA Part 135 surveillance increased; one Letter of Investigation (LOI) closed without action
+
+Coverage history:
+- $250M tower, $1.8M expiring premium
+- Berkshire Aviation primary $100M, USAIG excess $100M, AIG Specialty top $50M
+
+Renewal indications:
+- Berkshire Aviation: $1.95M primary $100M (+8%), no structural changes
+- Global Aerospace: $1.85M primary $100M (-3%), requires new SOP for landing-performance assessment
+- AIG Specialty: stays on top layer $50M at $385K
+- USAIG: excess $100M flat at $625K
+- War / hijacking endorsement: $48K (Marsh facility)""",
+    primary_specialty="aviation",
+    additional_specialties=[],
+    difficulty=3,
+    time_limit_minutes=45,
+    packet={
+        "Fleet": "18 jets (Citation XLS / Hawker / Phenom)",
+        "Hull value total": "~$185M",
+        "Hours / pax 2025": "11,400 / 3,200",
+        "Expiring": "$1.8M for $250M tower",
+        "2024 excursion": "MMK, $1.4M hull + $185K PD",
+        "NTSB cause": "Failure to go-around; SOP gap (cited)",
+        "FAA": "Part 135 surveillance ↑, 1 LOI closed",
+        "Indications": "Global Aero $1.85M (-3%, SOP req) · Berkshire $1.95M · USAIG/AIG layers",
+    },
+    red_flag_options=[
+        "NTSB SOP finding (landing performance assessment)",
+        "FAA Part 135 surveillance increase",
+        "Crew adherence to operator SOPs",
+        "Runway excursion frequency in fleet class",
+        "Pilot training depth across 64-pilot complement",
+        "Heavy maintenance outsourcing",
+        "Charter pax injury settlements",
+        "Hull values aging (Hawker 850s)",
+    ],
+    model_rationale="""This is an **approve** with Global Aerospace at $1.85M primary — they're pricing the SOP-remediation lever correctly and the discount reflects genuine risk reduction.
+
+**The NTSB SOP finding is the actionable item.** "Operator's SOPs did not require performance landing assessment with current conditions" is a fixable gap that directly addresses the proximate cause of the 2024 excursion. Implementing a documented pre-landing performance calc (using ARG/US or Foreflight performance modules) standard for all flights is industry best practice in 2026 and reduces excursion-class risk meaningfully. **Global's requirement isn't punitive — it's good underwriting.**
+
+**Pilot training.** 64 pilots, all ATP, all type-rated. Standard. Confirm:
+- Recurrent training cadence (typically 12 months for Part 135)
+- LOFT (line-oriented flight training) scenarios incorporate the SOP change
+- Sim time for landing-performance / contaminated-runway scenarios
+
+**Maintenance.** Part 145 in-house + heavy outsourced to TAG and Duncan is standard for Part 135 fleets this size. Both vendors are reputable. No concerns.
+
+**Hull adequacy.** $185M fleet, agreed-value on each aircraft. Confirm:
+- Aircraft hull values updated annually against Vref/Aircraft Bluebook
+- Hawker 850s aging — these have depreciated significantly since 2020. Likely $3.5–4.5M each now versus original schedule.
+
+**Pricing band (total tower).**
+- Primary $100M: $1.78M–$1.95M defensible. Global $1.85M mid-band.
+- Excess $100M (USAIG): $600–680K. Flat at $625K acceptable.
+- Top $50M (AIG): $360–410K. $385K acceptable.
+- War endorsement: $42–55K. $48K is fair.
+- **Total: $2.91M defensible**, vs. previous $1.8M tower (note: previous excludes some components — confirm apples-to-apples).
+
+Wait — looking at the numbers more carefully: the expiring $1.8M appears to be just the primary $100M layer (not the full $250M tower). Full tower expiring is likely $2.7M–$2.9M. The new tower estimate at $2.91M is essentially flat to a modest 3–5% increase, which reflects the underwriting discount Global offered.
+
+**Recommendation.** Bind Global Aerospace primary $100M at $1.85M, USAIG excess $100M at $625K, AIG top $50M at $385K, plus war endorsement $48K. Total **~$2.91M for $250M tower**. Subjectivities:
+1. SOP update for landing-performance assessment within 60 days; FAA Op Spec amendment if required.
+2. Recurrent training curriculum updated to include landing-performance scenarios within 6 months.
+3. Hull-value review on Hawker 850s — confirm agreed values against current market.
+4. Annual loss-control visit.""",
+    model_premium_low=2850000,
+    model_premium_high=3100000,
+    model_recommendation="approve",
+    key_factors=[
+        {"label": "NTSB SOP finding", "match": ["NTSB", "SOP", "landing performance", "go-around", "excursion"], "weight": 1},
+        {"label": "FAA Part 135 surveillance", "match": ["FAA", "Part 135", "surveillance", "LOI"], "weight": 1},
+        {"label": "Performance calc / Foreflight", "match": ["performance calc", "Foreflight", "ARG/US", "pre-landing", "contaminated"], "weight": 1},
+        {"label": "Pilot training depth", "match": ["LOFT", "recurrent", "type-rated", "ATP", "sim"], "weight": 1},
+        {"label": "Hull value adequacy", "match": ["hull", "agreed value", "Vref", "Bluebook", "Hawker"], "weight": 1},
+        {"label": "Tower structuring", "match": ["primary $100M", "excess", "USAIG", "AIG", "$250M"], "weight": 1},
+        {"label": "Pricing band", "match": ["$1.85", "$1.95", "$2.91", "band"], "weight": 1},
+        {"label": "Path forward", "match": ["Global Aerospace", "bind", "subject to", "approve"], "weight": 1},
+    ],
+    model_red_flags=[
+        "NTSB SOP finding (landing performance assessment)",
+        "FAA Part 135 surveillance increase",
+        "Hull values aging (Hawker 850s)",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-027",
+    slug="aviation-helicopter-emergency-medical",
+    title="Aviation — HEMS operator, 12 helicopters, recent CFIT incident",
+    summary="Helicopter EMS operator, 12 aircraft (mix of single-engine + light twins), CFIT incident in 2025. Heavy regulatory + plaintiff exposure profile.",
+    scenario="""Helicopter Emergency Medical Services (HEMS) operator renewal.
+
+Fleet:
+- 12 helicopters:
+  * 7 Bell 407 (single-engine)
+  * 3 Airbus H135 (light twin)
+  * 2 Airbus H145 (medium twin)
+- Hull values: $3.2M (407) to $8.8M (H145)
+- Total hull: $52M
+- Bases: 9 across rural TX/OK/AR
+
+Operations:
+- ~6,800 missions/yr; 75% scene response, 20% inter-facility, 5% organ
+- Pilot complement: 38 (all ATP-Helo + NVG-current)
+- Crew: pilot + flight nurse + paramedic
+
+Loss history (5 yr):
+- 2025 CFIT in OK: Bell 407 in IMC conditions descended into terrain at night; hull total loss ($3.6M), 3 fatalities (pilot + 2 crew, no patient onboard at time)
+- Wrongful-death suits filed by 2 families; demands $14M and $11M respectively; 1 family negotiating early settlement at ~$4.2M
+- NTSB final report 2026-01: probable cause "pilot's decision to continue flight into deteriorating weather without IFR clearance"; contributing factor "operator's risk-assessment protocol did not require pilot consultation with operational control center for marginal weather"
+- 2023 hard landing in TX, hull $785K, no injuries
+- 2 minor patient-handling claims $58K combined
+- 0 third-party BI on the ground
+
+Coverage:
+- Hull + liability tower: $200M smooth liability, expiring $3.2M
+- Primary $50M Global Aerospace, excess $50M Starr Aviation, $100M xs $100M from London panel
+
+Renewal indications:
+- Global Aerospace primary $50M: $2.65M (+38%), requires operational control center 24/7 + risk-assessment SOP update
+- USAIG primary $50M: $2.85M (+48%), no structural changes
+- London panel excess $100M xs $100M: $585K (flat)
+- Starr excess $50M xs $50M: $725K (+15%)
+- AIG Specialty offering top-up $100M xs $200M: $385K
+
+Open issues:
+- FAA Letter of Investigation on the OK CFIT — no enforcement action yet
+- HEMS industry-wide accident rate up 18% in 2025
+- IFR-equipage of fleet: 5 of 12 aircraft IFR-capable; remaining 7 VFR-only""",
+    primary_specialty="aviation",
+    additional_specialties=["healthcare"],
+    difficulty=5,
+    time_limit_minutes=55,
+    packet={
+        "Fleet": "12 helicopters (7 Bell 407 + 3 H135 + 2 H145)",
+        "Hull total": "$52M",
+        "Missions/yr": "~6,800",
+        "2025 CFIT": "3 fatalities, $3.6M hull, $14M+$11M demands",
+        "NTSB cause": "VFR-into-IMC; ops center gap (cited)",
+        "Indications primary $50M": "Global $2.65M (SOP req) · USAIG $2.85M",
+        "IFR equipage": "5 of 12 aircraft",
+        "Industry trend": "+18% accident rate 2025",
+    },
+    red_flag_options=[
+        "Open CFIT wrongful-death suits",
+        "VFR-only aircraft in IMC-risk environment",
+        "Operational control center gap (NTSB)",
+        "Pilot decision authority structure",
+        "HEMS industry accident trend",
+        "FAA LOI pending",
+        "Night NVG operations",
+        "Bell 407 single-engine risk profile",
+    ],
+    model_rationale="""This is a **quote with modifications** — Global Aerospace at $2.65M primary is correct because they're requiring the SOP fix that addresses the proximate cause of the CFIT. The 38% increase is steep but reflects:
+- 3 fatalities + $25M+ in demands
+- Industry-wide HEMS accident rate +18%
+- NTSB findings on operator-level gaps (not just pilot error)
+
+**The operational control center requirement is the structural fix.** HEMS programs increasingly require a 24/7 operations control center (OCC) staffed by aviation operations specialists who:
+- Pre-clear weather for every mission
+- Have authority to ground a flight unilaterally
+- Required pilot consultation for marginal weather (defined as forecast/observed VFR vs IMC threshold)
+- Maintain mission risk-assessment tools (TRA — Tactical Risk Assessment)
+This single change has been the largest driver of HEMS accident rate reduction in high-performing programs (PHI, Air Methods Tier 1) since 2018. **Make this binding.**
+
+**IFR equipage.** 7 of 12 aircraft VFR-only is the structural risk in a fleet doing 75% scene response in marginal weather conditions. Bell 407 IFR upgrade is ~$280K per aircraft (avionics + autopilot + de-ice in some configs). **Recommend a 36-month IFR-equipage plan** — high CapEx but transformational risk reduction.
+
+**Pricing band (total tower).**
+- Primary $50M: $2.45M–$2.95M defensible. Global $2.65M mid-band, paired with SOP fix.
+- Starr $50M xs $50M: $700–780K. $725K acceptable.
+- London $100M xs $100M: $560–620K. $585K acceptable.
+- AIG top-up $100M xs $200M optional: $385K — recommend taking it for $300M total tower in plaintiff-friendly venues.
+- **Total tower with top-up: ~$4.35M for $300M.**
+
+**Wrongful-death claims.** $25M+ in demands against a $200M tower (currently). The $4.2M early settlement is reasonable for one family if the case has weak liability defense; the other claim ($11M) likely settles $5M–$8M based on similar OK fatal-helicopter cases. **Expected total: $9M–$12M** — fits within primary $50M but burns through and creates excess-layer triggers in 2026 renewal cycle.
+
+**FAA LOI.** Pending enforcement; possible outcomes:
+- Letter of Correction (lowest impact)
+- Compliance Action (CA — common)
+- Certificate Action against operator (worst — possible suspension or restrictions)
+Confirm carrier panel counsel is engaged in the LOI response.
+
+**Recommendation.** Bind Global Aerospace primary $50M at $2.65M + Starr $50M xs $50M $725K + London $100M xs $100M $585K + AIG top-up $100M xs $200M $385K = **$4.35M total** for $300M tower. Subjectivities:
+1. 24/7 OCC stood up within 90 days; OCC consults pilot for any flight where weather forecast is within 1,000-ft / 3-mile of VFR minima.
+2. Risk-assessment protocol (TRA) implemented for every mission within 60 days.
+3. IFR-equipage plan with funding committed for 5 additional aircraft over 36 months.
+4. Recurrent VFR-into-IMC simulator training for all pilots.
+5. Carrier panel counsel coordinated with FAA LOI response.
+6. Quarterly safety-program briefings.""",
+    model_premium_low=4000000,
+    model_premium_high=4600000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "OCC / operational control center", "match": ["OCC", "operational control", "24/7", "consultation", "marginal weather"], "weight": 1},
+        {"label": "Risk-assessment protocol (TRA)", "match": ["TRA", "risk assessment", "tactical", "protocol", "SOP"], "weight": 1},
+        {"label": "IFR equipage strategy", "match": ["IFR", "VFR", "equipage", "autopilot", "de-ice"], "weight": 1},
+        {"label": "VFR-into-IMC training", "match": ["VFR-into-IMC", "IMC", "simulator", "training", "recurrent"], "weight": 1},
+        {"label": "Wrongful-death exposure", "match": ["wrongful death", "$14M", "$11M", "$4.2M", "demand", "settlement"], "weight": 1},
+        {"label": "FAA LOI / enforcement", "match": ["FAA", "LOI", "enforcement", "certificate action", "Letter of Correction"], "weight": 1},
+        {"label": "Tower structuring", "match": ["primary $50M", "excess", "Starr", "AIG", "$200M", "$300M"], "weight": 1},
+        {"label": "Path forward", "match": ["Global Aerospace", "bind", "subject to", "approve"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Open CFIT wrongful-death suits",
+        "VFR-only aircraft in IMC-risk environment",
+        "Operational control center gap (NTSB)",
+        "Pilot decision authority structure",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-028",
+    slug="energy-permian-driller-control-of-well",
+    title="Energy — Permian Basin onshore driller, control-of-well cover",
+    summary="Mid-size onshore drilling contractor in the Permian. 8 rigs, recent kick / well-control event. CCoW and OEE renewal.",
+    scenario="""Renewal submission for an onshore drilling contractor.
+
+Operations:
+- 8 land rigs (4 walking + 4 conventional), all Permian Basin (TX + NM)
+- Total contract revenue: $310M
+- Crews: 240 employees + 60 contract roustabouts
+- Drilling days/year: ~2,200 across 8 rigs
+- Customer mix: 70% major E&P (Chevron, Pioneer, Permian Resources), 30% mid-cap independents
+
+Coverage requested:
+- Operators Extra Expense (OEE) / Cost of Control of Well — $50M
+- Seepage & Pollution — $10M (per occ)
+- Care, Custody, Control (CCC) on customer-furnished equipment — $25M
+- Underground Resources & Equipment (URE) — $10M
+- Comprehensive General Liability $5M
+
+Loss history (5 yr):
+- 2025 Q3 kick event in NM Eddy County:
+  * Well control regained after 36 hrs
+  * CCoW + intervention costs $7.4M paid
+  * No injuries, no third-party BI
+  * Drilling-mud release to surface — $580K cleanup
+  * 1 monitoring well drilled by NMOCD; no contamination above baseline
+- 2024 minor blowout preventer (BOP) failure during testing — repair $185K
+- 2023 stuck-pipe incident — $1.2M paid for milling + sidetrack
+- 0 fatalities, 0 third-party injuries
+- 2 contract operator claims (CCC) — $310K total
+
+OE Operator Extra Expense profile:
+- Risk type: onshore vertical + horizontal drilling
+- TDs typical 11,000 ft vertical + 10,500 ft lateral
+- Pressures: 8,500–11,500 psi typical reservoir
+- H2S concentrations: low (<10 ppm) in most plays, mid-50s ppm in 2 Eddy County leases
+
+Renewal indications:
+- AXIS Energy: $385K OEE $50M, $145K S&P $10M, $58K URE $10M, $185K CCC $25M
+- AIG Onshore Energy: $410K OEE $50M, $138K S&P $10M, $54K URE $10M, $172K CCC $25M
+- Lloyd's syndicates (Apollo + Brit): $342K OEE $50M, $158K S&P $10M, $62K URE $10M, $192K CCC $25M
+- Berkshire Hathaway Specialty (BHSI): declines OEE primary
+
+Other:
+- Insured uses standard IADC drilling contract; H2S contingency plan in place
+- BOPE (blowout preventer equipment) recertified annually
+- Driller safety officer per rig; weekly safety meetings documented""",
+    primary_specialty="energy",
+    additional_specialties=["environmental"],
+    difficulty=4,
+    time_limit_minutes=50,
+    packet={
+        "Rigs / drilling days": "8 / ~2,200",
+        "Revenue": "$310M",
+        "5-yr losses": "$7.4M CCoW + $580K pollution + $1.2M stuck pipe + $185K BOP",
+        "OEE / S&P / URE / CCC limits": "$50M / $10M / $10M / $25M",
+        "H2S": "Low except 2 Eddy County leases (mid-50s ppm)",
+        "Indications": "Apollo+Brit $342K OEE (cheapest) · AXIS $385K · AIG $410K · BHSI declined",
+    },
+    red_flag_options=[
+        "Recent CCoW event ($7.4M) on file",
+        "H2S exposure in Eddy County leases",
+        "Pollution release in NM (NMOCD attention)",
+        "BHSI decline on OEE primary",
+        "BOP failure during testing",
+        "Stuck-pipe frequency",
+        "Customer-furnished equipment (CCC tail)",
+        "Walking-rig deployment risk profile",
+    ],
+    model_rationale="""This is an **approve as quoted** — bind Lloyd's syndicate package at $342K OEE primary; the broader Lloyd's facility is the right answer for Permian onshore drilling in 2026.
+
+**OEE pricing.** $342K for $50M onshore Permian primary is the bottom of the band but defensible:
+- 8 rigs × 275 drilling days/rig × ~$2.20 per drilling day per $1M of limit = **$300K–$370K range**.
+- Lloyd's at $342K mid-band on a syndicate basis. AXIS and AIG higher reflect their internal risk-loading on the recent $7.4M kick event.
+
+**The $7.4M Eddy County kick is the underwriting question.** Specific issues:
+- 36-hour duration suggests well-control complexity (deep, high-pressure, or H2S complications)
+- Drilling-mud release indicates surface lost-circulation control — different failure mode than reservoir blowout
+- NMOCD monitoring well drilled — regulator engagement; no contamination found is the good news
+- $580K cleanup paid — within S&P sublimit
+**Confirm operational changes post-event:** root-cause analysis findings, BOP test cadence (annual is standard; some operators move to 6-month after a kick), mud-weight protocol changes, monitoring sensors deployed.
+
+**H2S exposure.** Mid-50s ppm in 2 Eddy County leases — workable but requires:
+- H2S contingency plan compliant with NM OCD / TX RRC standards
+- All crew H2S Awareness + crew-leader Specialty certified
+- SCBA + escape gear staged
+- Per-rig H2S monitors with cellular reporting
+H2S incidents become catastrophic injury claims rapidly; OEE responds to control costs but BI claims hit GL/Umbrella.
+
+**Pollution sublimit.** $10M S&P (Seepage & Pollution) is adequate for surface release events but tight if a release reaches USDW (Underground Source of Drinking Water). For Eddy County (Ogallala / Pecos river basin), pollution exposure to USDW is the catastrophic tail. **Confirm S&P responds to USDW-affecting releases without sub-sublimits.**
+
+**CCC (Care, Custody, Control).** $25M for customer-furnished equipment is light if the operator is running high-spec downhole tools (MWD/LWD telemetry, rotary steerable systems) — these tools can be $1.5–4M per BHA (bottom-hole assembly). Cumulative exposure on multiple wells operating simultaneously can easily exceed $25M. **Stress-test CCC vs. concurrent BHA inventory in the field.**
+
+**Pricing band (full program).**
+- OEE $50M: $325K–$415K. Apollo+Brit $342K bottom-mid.
+- S&P $10M: $140K–$165K. Apollo+Brit $158K mid.
+- URE $10M: $54K–$65K. Apollo+Brit $62K acceptable.
+- CCC $25M: $172K–$200K. Apollo+Brit $192K acceptable.
+- **Total: $754K** vs AXIS package at $773K vs AIG at $774K. Lloyd's slightly cheaper, similar value.
+
+**Recommendation.** Bind Apollo+Brit syndicate package at **$754K total** subject to:
+1. Root-cause analysis of 2025 Q3 kick event shared with carrier panel.
+2. BOP test cadence confirmed; consider 6-month frequency on Eddy County leases.
+3. H2S monitor + cellular telemetry on all 8 rigs.
+4. CCC stress-test vs concurrent BHA inventory — increase to $35M if any single rig BHA exceeds $5M.
+5. S&P form review for USDW response.
+6. Annual loss-control visit by carrier engineer.""",
+    model_premium_low=720000,
+    model_premium_high=830000,
+    model_recommendation="approve",
+    key_factors=[
+        {"label": "Recent kick event analysis", "match": ["kick", "$7.4M", "Eddy", "36 hours", "well control"], "weight": 1},
+        {"label": "OEE pricing per drilling day", "match": ["OEE", "$50M", "drilling day", "$2.20", "per million"], "weight": 1},
+        {"label": "H2S exposure / training", "match": ["H2S", "SCBA", "monitor", "ppm", "NM OCD", "TX RRC"], "weight": 1},
+        {"label": "Pollution / USDW response", "match": ["pollution", "USDW", "Ogallala", "sublimit", "$10M S&P"], "weight": 1},
+        {"label": "CCC adequacy for BHA inventory", "match": ["CCC", "BHA", "MWD", "LWD", "rotary steerable", "$25M"], "weight": 1},
+        {"label": "BOP test cadence", "match": ["BOP", "blowout preventer", "test", "cadence", "annual", "6-month"], "weight": 1},
+        {"label": "Carrier comparison", "match": ["AXIS", "AIG", "Apollo", "Brit", "BHSI", "Lloyd"], "weight": 1},
+        {"label": "Path forward", "match": ["bind", "subject to", "approve", "syndicate"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Recent CCoW event ($7.4M) on file",
+        "H2S exposure in Eddy County leases",
+        "Pollution release in NM (NMOCD attention)",
+        "BHSI decline on OEE primary",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-029",
+    slug="energy-midstream-pipeline-corrosion",
+    title="Energy midstream — 280-mile gathering pipeline, recent corrosion leak",
+    summary="Midstream gathering pipeline (oil + gas, 280 miles) had a corrosion-related crude leak. Renew property + pollution + GL or restructure?",
+    scenario="""Renewal for a private midstream operator owning 280 miles of gathering pipeline in the Eagle Ford and Wolfcamp.
+
+Operations:
+- Pipeline: 280 miles total (180 mi 8" crude, 100 mi 6" gas gathering)
+- 4 pumping stations + 12 metering skids
+- 65 employees + 30 contract field operators
+- Throughput: 78,000 bpd crude + 86 MMcf/d gas
+- Customers: 2 majors + 11 independents
+
+Coverage requested:
+- All-risks property on pipeline + stations $185M TIV
+- Business interruption $42M
+- Pollution liability (CSL) $50M / $50M
+- General liability $5M
+- Pipeline / pollution incident response & cleanup
+- Loss-of-contract / take-or-pay endorsement
+
+Loss history (5 yr):
+- 2025 Q4 corrosion leak on 8" crude line near Karnes County, TX:
+  * Released ~840 barrels crude before isolation valves closed
+  * Surface release, no groundwater (initial findings)
+  * Cleanup + remediation: $4.2M (vegetation, soil, surface water)
+  * 4 surface owners filed claims; 2 settled at $185K combined; 2 pending
+  * NORTH American Pipeline Operators Forum (NPOF) inspection followed
+  * PHMSA Notice of Probable Violation issued for inadequate CP (cathodic protection) records
+- 2023 minor pump-station fire — $620K property
+- 2022 third-party damage (rancher's dozer) $58K
+
+Coverage history:
+- $48M property + $32M BI + $40M pollution
+- Expiring premium $2.85M for the full package
+
+Renewal indications:
+- AIG / Energy Liberty: $3.45M total (+21%); requires updated ILI (in-line inspection / "smart-pig") schedule; pollution sublimit unchanged
+- Allianz Energy: $3.28M total (+15%); pollution increased to $50M, BI increased to $42M; new "corrosion-related leak" deductible of $500K
+- Liberty Energy: $3.62M (+27%); flat structure, no risk-control conditions
+
+Other:
+- Pipeline integrity management: ILI runs every 5 yr (federal minimum 7 yr); next pig run scheduled Q2 2026
+- Cathodic protection survey: annual; last in Q3 2025 (after the leak), findings: 14% of survey points below required potential
+- Right-of-way: 92% direct landowner agreements, 8% federal/state easement
+- PHMSA NOPV — operator's response due Q3 2026; possible civil penalty $50K–$200K typical for inadequate CP records""",
+    primary_specialty="energy",
+    additional_specialties=["environmental"],
+    difficulty=4,
+    time_limit_minutes=50,
+    packet={
+        "Pipeline mileage": "280 (180 crude + 100 gas)",
+        "TIV / BI / pollution": "$185M / $42M / $50M",
+        "5-yr losses": "$4.2M leak + $620K fire + $58K third-party",
+        "PHMSA": "NOPV — inadequate CP records",
+        "ILI schedule": "5 yr (next Q2 2026)",
+        "CP survey": "14% below required potential",
+        "Indications": "Allianz $3.28M (corrosion deduct) · AIG $3.45M (ILI req) · Liberty $3.62M",
+    },
+    red_flag_options=[
+        "PHMSA Notice of Probable Violation",
+        "Cathodic protection survey findings (14% below)",
+        "Open surface-owner claims",
+        "ILI cadence at federal minimum",
+        "Allianz $500K corrosion deductible",
+        "Karnes County venue exposure",
+        "Aging pipeline corrosion-vulnerable segments",
+        "Federal/state easement portion",
+    ],
+    model_rationale="""This is a **quote with modifications** — Allianz at $3.28M is the right call despite the new $500K corrosion-related-leak deductible, because the package responds correctly to the actual loss patterns and the deductible is fair given the 2025 event.
+
+**The deductible analysis.** Allianz's $500K corrosion-leak deductible is targeted, not broad. The 2025 Karnes leak (~$4.2M cleanup) would have netted $3.7M after deductible. **Compared to AIG's flat-deductible approach, Allianz is sharing risk in a way that's appropriately punitive of corrosion events (which are operator-controllable via ILI/CP)** but not so punitive as to make the policy non-responsive.
+
+**PHMSA NOPV.** Inadequate CP records is a remediable finding. Standard remediation:
+- Engage qualified CP engineer (NACE-certified)
+- Re-establish CP records baseline (all 280 mi)
+- Implement quarterly close-interval surveys
+- Document corrective action on the 14% under-potential points (replace anodes, install new groundbeds, repair coating)
+**Allowance for civil penalty of $50K–$200K likely; doesn't move the underwriting needle materially.**
+
+**ILI cadence.** 5-yr cadence is above federal minimum (7-yr) but tight given Karnes leak. **Recommend the insured move to 3-year cadence on the segment that failed** ($580K cost per 100 mi typical for high-resolution MFL pig run). Industry leading practice for high-consequence-area segments.
+
+**Cathodic protection at 14% below potential is the operational red flag.** This is a 4-month problem to fix (anodes are commodities; installation is straightforward) and represents the biggest single-action risk reduction available.
+
+**Pollution sublimit.** $50M (Allianz proposal) is adequate for surface releases up to 5,000 bbl. Where it could be tight: a release that reaches the Guadalupe River system or San Antonio Bay watershed via tributary. **Stress-test the route map vs surface-water proximity.**
+
+**Loss-of-contract / take-or-pay.** Some midstream contracts include take-or-pay obligations the operator owes to upstream producers. If a leak takes a segment out of service, the operator may owe pre-committed throughput to producers. **Confirm BI definition covers contractual penalties + lost throughput fees** — many property forms don't.
+
+**Pricing band.** $3.20M–$3.55M defensible. Allianz $3.28M low-mid band, structurally aligned.
+
+**Recommendation.** Bind Allianz package at $3.28M subject to:
+1. CP remediation on 14% under-potential points within 90 days; documented per NACE standards.
+2. ILI cadence accelerated to 3 yr on high-consequence-area segments (>30% of mileage).
+3. PHMSA NOPV response strategy reviewed with carrier panel counsel.
+4. BI definition confirmed to cover take-or-pay contractual penalties.
+5. Pollution form stress-tested against surface-water-proximity scenarios.
+6. Annual pipeline integrity meeting with carrier engineer.""",
+    model_premium_low=3200000,
+    model_premium_high=3550000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "PHMSA NOPV / CP records", "match": ["PHMSA", "NOPV", "cathodic protection", "CP", "records", "NACE"], "weight": 1},
+        {"label": "Cathodic protection survey gap", "match": ["14%", "under-potential", "anode", "groundbed", "coating"], "weight": 1},
+        {"label": "ILI / smart-pig cadence", "match": ["ILI", "smart pig", "in-line inspection", "MFL", "cadence", "3-year"], "weight": 1},
+        {"label": "Corrosion-related deductible", "match": ["corrosion", "deductible", "$500K", "Allianz"], "weight": 1},
+        {"label": "Pollution sublimit / watershed", "match": ["pollution", "$50M", "Guadalupe", "watershed", "surface water"], "weight": 1},
+        {"label": "BI / take-or-pay", "match": ["BI", "take-or-pay", "contractual", "throughput", "midstream"], "weight": 1},
+        {"label": "Open surface-owner claims", "match": ["surface owner", "Karnes", "claim", "settle"], "weight": 1},
+        {"label": "Path forward", "match": ["Allianz", "bind", "subject to", "approve"], "weight": 1},
+    ],
+    model_red_flags=[
+        "PHMSA Notice of Probable Violation",
+        "Cathodic protection survey findings (14% below)",
+        "ILI cadence at federal minimum",
+        "Aging pipeline corrosion-vulnerable segments",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-030",
+    slug="green-energy-utility-solar-bess",
+    title="Green energy — 320 MW utility-scale solar + 160 MWh BESS, hail damage",
+    summary="Texas utility-scale solar with co-located BESS. 2025 hailstorm + a thermal-runaway BESS event. Property + BESS-specific renewal.",
+    scenario="""Property / BI / BESS-specific renewal for a 320 MW utility-scale solar farm with co-located 160 MWh / 80 MW battery energy storage system in the Texas Panhandle.
+
+Site:
+- Module count: 720,000 monofacial bifacial modules (550W each)
+- Tracker mounting: single-axis horizontal
+- Inverters: 80 string inverters (string-MLPE configuration with optimizers)
+- BESS: 64 enclosures, LFP chemistry (CATL EnerC+ containers)
+- Substation + GIS + 230 kV interconnect
+- TIV: $385M total (modules + BESS + BOP + substation)
+
+Operations:
+- COD: March 2024
+- Operator: in-house O&M team of 14 + 24/7 monitoring contract with utility-grade SOC
+- Insurance market entry: PPA-tied financing (utility offtake)
+
+2025 events:
+- Q2 hailstorm: golf-ball + larger hail across 18% of array; 28,000 modules with documented damage (microcracks + glass breakage); claim $4.8M paid (after $1M deductible)
+- Q4 BESS thermal-runaway event: 1 enclosure (8 MWh) ignited overnight; on-site fire suppression activated correctly, fire contained to single enclosure; replacement cost $1.8M + $410K debris removal + $290K BI
+- PHMSA-equivalent (FERC) and TCEQ both reviewed BESS event — no enforcement
+
+Coverage history:
+- Property + BI + BESS-specific: $385M property, $24M BI, $25M sublimit on hail, $50M BESS sublimit
+- Expiring premium: $1.92M
+- Markets: WTW-led panel — Munich Re lead, Swiss Re excess, AXIS BESS-specific
+
+Renewal indications:
+- Munich Re lead: $2.85M (+48%), reduces hail sub from $25M to $15M, requires hail-resistant module reglazing or array-tilt protection plan
+- Swiss Re excess: stays in but slight rate-up
+- AXIS BESS-specific: $385K (+12%), requires thermal-runaway monitoring upgrade
+- Lloyd's syndicate offering alternative lead: $2.62M, keeps hail sub at $25M, requires deployment of stowable trackers for hail protection
+- Berkshire Solar Group: declines lead
+
+Other:
+- Hail-stow feature: trackers have software-controlled stow position for forecast hail; was not deployed timely during 2025 storm (operator decision not to stow due to forecast uncertainty)
+- BESS site has perimeter fire detection but no inter-enclosure thermal monitoring (gap)
+- Insurance / financing structure requires lender approval of policy form changes""",
+    primary_specialty="green-energy",
+    additional_specialties=["bess", "cat-wind"],
+    difficulty=4,
+    time_limit_minutes=50,
+    packet={
+        "Capacity": "320 MW solar + 160 MWh / 80 MW BESS",
+        "TIV": "$385M",
+        "2025 hail": "28K modules damaged, $4.8M paid (net of $1M deduct)",
+        "2025 BESS event": "1 enclosure thermal runaway, $2.5M total",
+        "Hail-stow deployment": "Not used during 2025 storm",
+        "Indications lead": "Munich Re $2.85M (sub ↓ + reglazing req) · Lloyd's $2.62M (stow req)",
+        "BESS thermal monitoring": "Perimeter only, no inter-enclosure",
+    },
+    red_flag_options=[
+        "Hail-stow not deployed timely",
+        "Inter-enclosure thermal monitoring gap",
+        "Munich Re hail sub-limit reduction",
+        "TX Panhandle hail frequency",
+        "BESS thermal runaway event on file",
+        "Module reglazing logistics + cost",
+        "Lender approval friction on form changes",
+        "BESS chemistry (LFP) fire behavior",
+    ],
+    model_rationale="""This is a **quote with modifications** — Lloyd's syndicate lead at $2.62M with the stowable-tracker deployment requirement is the right structural answer. Munich Re's hail sub-limit reduction is materially adverse and Lloyd's keeps it.
+
+**Hail is the structural exposure.** TX Panhandle hail frequency has been increasing (NOAA SPC 2023–2025 data shows large hail >2" event rate up ~22% in the region). **Hail-stow utilization is the single most controllable lever** — when properly deployed (modules angled 75°+ from horizontal), tilt protection reduces hail damage by 60–85%.
+
+The 2025 storm event reveals the operational gap: stow was *not* deployed despite forecast hail. Standard operating protocol should be:
+- Hail forecast in 24-hr radius via Schneider or DTN service
+- Automatic stow trigger at NOAA SPC slight-risk-or-higher
+- Manual override only with documented operator sign-off
+- Stow protocol drill quarterly
+
+**Lloyd's stow-deployment requirement is correct.** Munich Re's reglazing approach is more expensive and less effective — reglazing 720K modules with hail-resistant glass is a $30M+ retrofit; stowable-tracker software is a $185K one-time deployment + $25K/yr maintenance.
+
+**Hail sub-limit.** $25M is the right number for an 18%-array event repeating. Going to $15M (Munich Re's proposal) at TIV $385M is roughly 4% sublimit, while industry standard for hail-exposed solar is 7–10%. Reject Munich Re.
+
+**BESS event analysis.** Thermal runaway containment to single enclosure is the system performing as designed (compartmentalization + perimeter fire detection). The gap is **inter-enclosure thermal monitoring** — temperature sensors between enclosures that alert at 60–80°C delta, allowing intervention before runaway propagates. Industry standard 2026 for new construction; retrofit is straightforward ($1,200–1,800 per enclosure).
+
+**AXIS BESS-specific renewal.** $385K (+12%) with the thermal monitoring requirement is fair. **Recommend deploying inter-enclosure monitoring across all 64 enclosures within 90 days** ($85K total project cost).
+
+**Pricing band (total program).**
+- Lead $2.62M–$2.85M.
+- BESS-specific $360–410K.
+- Excess layers (Swiss Re + others): $385K–$450K.
+- **Total: $3.37M–$3.69M defensible.**
+
+**Lender approval.** Solar/BESS PPA financing typically has independent engineer (IE) sign-off and a "permitted endorsements" clause in the lender documents. **Confirm Lloyd's syndicate's policy form is on the permitted-endorsement list before binding** — if not, the lender's IE review can add 30–45 days.
+
+**Recommendation.** Bind Lloyd's syndicate lead at $2.62M + AXIS BESS $385K + Swiss Re excess + others (~$420K), **total ~$3.43M**. Subjectivities:
+1. Hail-stow auto-deployment protocol implemented within 60 days; documented drill quarterly.
+2. Inter-enclosure thermal monitoring deployed within 90 days on all 64 BESS enclosures.
+3. BESS event RCA findings shared with carrier panel.
+4. Lender IE sign-off on policy form before binding.
+5. Annual loss-control inspection by carrier solar/BESS engineer.""",
+    model_premium_low=3300000,
+    model_premium_high=3700000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "Hail-stow deployment protocol", "match": ["hail-stow", "stow", "tracker", "SPC", "tilt"], "weight": 1},
+        {"label": "Hail sub-limit adequacy", "match": ["hail sub", "$25M", "$15M", "Munich Re", "sublimit"], "weight": 1},
+        {"label": "BESS thermal monitoring", "match": ["thermal", "runaway", "inter-enclosure", "monitoring", "sensor"], "weight": 1},
+        {"label": "BESS compartmentalization", "match": ["enclosure", "compartment", "containment", "perimeter", "LFP"], "weight": 1},
+        {"label": "TX Panhandle hail frequency", "match": ["Panhandle", "Texas", "hail", "frequency", "NOAA", "SPC"], "weight": 1},
+        {"label": "Lender / IE approval", "match": ["lender", "PPA", "independent engineer", "IE", "permitted endorsement"], "weight": 1},
+        {"label": "Tower structuring", "match": ["lead", "Lloyd", "Munich Re", "Swiss Re", "AXIS", "BESS-specific"], "weight": 1},
+        {"label": "Path forward", "match": ["Lloyd", "bind", "subject to", "approve"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Hail-stow not deployed timely",
+        "Inter-enclosure thermal monitoring gap",
+        "Munich Re hail sub-limit reduction",
+        "BESS thermal runaway event on file",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-031",
+    slug="green-energy-offshore-wind-construction",
+    title="Green energy — 720 MW offshore wind construction phase, Mid-Atlantic",
+    summary="Construction All-Risks (CAR) + DSU for a 720 MW offshore wind farm. Cable burial issue + a Jones Act exposure question. Renew the CAR / 3rd-yr program?",
+    scenario="""Year 3 (of 4) construction renewal for a 720 MW offshore wind project off the Mid-Atlantic coast.
+
+Project profile:
+- Capacity: 720 MW (60 × 12 MW turbines, Siemens Gamesa SG 14-222)
+- Inter-array cables: 66 kV, ~140 km total
+- Export cables: 230 kV HVAC, 2 × 65 km to onshore substation
+- COD target: Q4 2027
+- Total construction value insured: $4.8B
+
+Coverage:
+- Construction All-Risks (CAR) $4.8B / occurrence, $200M / aggregate (testing)
+- Delay-in-Start-Up (DSU) $480M ($800K/day × 600-day indemnity), 90-day deductible
+- Marine cargo + transit
+- Existing-property exposure (subsea cable laying through working fisheries)
+- Third-party liability $250M
+- Wreck removal / pollution / spill
+
+Construction status (Q1 2026):
+- 42 of 60 foundations installed (monopiles)
+- 28 of 60 turbines transported + installed
+- Inter-array cables: 64 of 120 sections laid; 4 sections with documented burial-depth issues (cables not buried to permitted 1.5m depth; current depths 0.7–1.2m on those segments)
+- Export cable: 1 of 2 fully laid + tested
+
+Open issues:
+- Cable burial depth shortfall — 4 segments require re-burial; cost estimate $32M; potential 28-day delay window
+- Vessel incident Q4 2025: cable-laying vessel (chartered) cargo (cable section) damaged due to crew error; subro pending; $4.6M paid by CAR
+- Jones Act question: insured uses US-flagged feeder vessels but jacket-installation vessel is foreign-flagged (Heerema); BSEE accepted under Jones Act exception with documentation
+- One injured Jones Act seaman claim filed Q1 2026 ($1.4M, lumbar injury during deck operations on the US-flagged feeder)
+
+Renewal indications (CAR/DSU only, layers stay similar):
+- AXA XL lead $2B: $42M (+8%), keeps DSU at $480M, requires cable-burial corrective action plan signed by carrier panel before re-burial begins
+- Allianz lead $2B alternative: $45M (+15%), requires DSU sub-limit reduction to $360M
+- Lloyd's market follower: confirms 18% of program at $24M
+- Munich Re: confirms 12% of program at $18M
+- Swiss Re: confirms 14% of program at $21M
+- AXIS: 22% at $26M
+
+Other:
+- Onshore substation: separately insured under operational property after COD
+- BOEM lease has performance bond requirement; bond stays in place
+- Cable supplier (NKT) has rep-and-warranty on burial spec; insured exploring contract recovery for the 4-segment shortfall""",
+    primary_specialty="green-energy",
+    additional_specialties=["construction", "ocean-marine"],
+    difficulty=5,
+    time_limit_minutes=60,
+    packet={
+        "Project": "720 MW (60 × 12 MW Siemens Gamesa)",
+        "CAR / DSU": "$4.8B / $480M ($800K/day × 600 d)",
+        "Status": "42/60 foundations, 28/60 turbines, 64/120 inter-array, 1/2 export",
+        "Cable burial gap": "4 segments, est $32M / 28-day delay",
+        "Jones Act seaman claim": "$1.4M lumbar (feeder vessel)",
+        "Vessel cargo incident": "$4.6M paid (subro pending)",
+        "AXA XL lead": "+8% ($42M)",
+        "DSU question": "Allianz proposing sub-limit reduction $480M→$360M",
+    },
+    red_flag_options=[
+        "Cable burial depth shortfall (4 segments)",
+        "Jones Act seaman claim open",
+        "Foreign-flagged installation vessel (Heerema)",
+        "DSU sub-limit reduction proposal",
+        "Existing-property exposure (fisheries)",
+        "Open vessel cargo claim (subro pending)",
+        "BOEM compliance + lease conditions",
+        "Schedule pressure to COD (Q4 2027)",
+    ],
+    model_rationale="""This is a **approve with modifications** — bind AXA XL lead at $42M, reject Allianz's DSU sub-limit reduction. Stay with the existing panel structure.
+
+**The cable burial depth shortfall is the active risk event.** 4 segments at 0.7–1.2m vs permitted 1.5m means:
+- Federal permit compliance gap (BOEM / BSEE)
+- Re-burial cost $32M (within CAR responsiveness, less deductible)
+- 28-day delay window directly affects DSU exposure ($800K/day × 28 = $22.4M DSU claim)
+- **Total expected loss: ~$54M** against CAR + DSU layers
+**Confirm AXA XL's panel-counsel-approved corrective action plan structure** so insured doesn't risk a coverage dispute on the re-burial costs being characterized as "rework" (often excluded) vs "damage repair" (covered).
+
+**DSU sub-limit defense.** Allianz's proposal to reduce DSU from $480M to $360M is exactly the wrong direction with the cable burial issue active. The DSU at 28-day potential delay alone is $22M; if cable issues compound (additional segments, weather windows, vessel availability), the 600-day full deduction becomes possible at the project level. **Keep DSU at $480M.**
+
+**Jones Act seaman claim.** $1.4M lumbar injury on US-flagged feeder vessel — Jones Act seaman cases (46 U.S.C. § 30104) have:
+- Negligence standard: Pratt v. Mostek "featherweight" causation
+- Damages: pain and suffering uncapped + lost wages + maintenance and cure
+- No comparative-fault reduction below 1% causation
+**$1.4M reserve is light** for an open lumbar injury claim; budget $2.5M–$4M for settlement zones. Within third-party liability tower but worth confirming.
+
+**Foreign-flagged installation vessel.** Heerema's jacket-installation vessel is a known Jones Act exception under BSEE's offshore wind interpretation. **Confirm BSEE acceptance documentation is current** — Jones Act Reform Coalition has been lobbying for tighter enforcement; political risk exists for changes in 2026–2027.
+
+**Vessel cargo incident.** $4.6M paid; subro pending against the chartered vessel's P&I cover. Standard subro process; 40–70% recovery probable.
+
+**Cable supplier rep & warranty.** NKT contractual recovery for the 4-segment burial spec deficit is a parallel track. If the burial issue is attributable to NKT's contractor-installation error vs the spec they delivered, recovery is meaningful. **Document allocation theories early.**
+
+**Pricing band.** $215M–$245M total program value in this year's renewal (across all layers). $42M for AXA XL lead $2B is roughly 2.1% of layer = market.
+
+**Recommendation.** Bind AXA XL lead $42M, keep panel structure:
+- Lloyd's 18% — $24M
+- Swiss Re 14% — $21M
+- Munich Re 12% — $18M
+- AXIS 22% — $26M
+- DSU $480M unchanged
+- Total renewal year **~$131M for CAR/DSU + supporting layers**.
+
+Subjectivities:
+1. Cable burial corrective action plan reviewed and approved by carrier marine warranty surveyor before re-burial begins.
+2. NKT supplier-recovery allocation theory documented within 60 days.
+3. BSEE Jones Act exception documentation refreshed for Heerema vessel.
+4. Jones Act seaman claim reserved at $3M minimum.
+5. DSU sub-limit unchanged at $480M.
+6. Weekly construction-progress / loss-control call with carrier panel through COD.""",
+    model_premium_low=125000000,
+    model_premium_high=145000000,
+    model_recommendation="approve",
+    key_factors=[
+        {"label": "Cable burial depth shortfall", "match": ["burial", "depth", "1.5m", "0.7m", "1.2m", "BOEM"], "weight": 1},
+        {"label": "DSU sub-limit defense", "match": ["DSU", "$480M", "$360M", "delay", "$800K/day"], "weight": 1},
+        {"label": "Jones Act seaman claim", "match": ["Jones Act", "seaman", "46 U.S.C.", "30104", "featherweight", "Pratt"], "weight": 1},
+        {"label": "Foreign-flag vessel exception", "match": ["Heerema", "foreign-flag", "Jones Act exception", "BSEE"], "weight": 1},
+        {"label": "Re-burial covered vs rework", "match": ["re-burial", "rework", "damage", "exclusion", "corrective action"], "weight": 1},
+        {"label": "Supplier contractual recovery", "match": ["NKT", "supplier", "rep and warranty", "recovery", "allocation"], "weight": 1},
+        {"label": "Subro / vessel cargo incident", "match": ["subro", "$4.6M", "vessel", "P&I", "recovery"], "weight": 1},
+        {"label": "Path forward", "match": ["AXA XL", "bind", "subject to", "approve"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Cable burial depth shortfall (4 segments)",
+        "Jones Act seaman claim open",
+        "DSU sub-limit reduction proposal",
+        "Schedule pressure to COD (Q4 2027)",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-032",
+    slug="construction-mixed-use-high-rise",
+    title="Construction — 42-story mixed-use Wrap-Up (OCIP), open structural issue",
+    summary="OCIP on a 42-story mixed-use tower in Austin, year 2 of 3. Pre-existing structural issue on floors 12–14. Renew or restructure the wrap?",
+    scenario="""Year 2 (of 3) Owner-Controlled Insurance Program (OCIP) renewal for a $580M total project value mixed-use tower.
+
+Project:
+- 42 stories, mixed-use: hotel floors 1-12, residential 13-32, office 33-42, retail base
+- Located: downtown Austin, TX
+- GC: large national contractor
+- Subcontractor count: 38 enrolled in OCIP, 12 non-enrolled (specialty IT, FF&E, etc.)
+- Total project value: $580M
+
+OCIP coverage:
+- Workers Comp $1M / $1M / $1M
+- General Liability $2M / $4M / $25M product-completed ops aggregate
+- Excess Liability $200M (tower with 8 layers)
+- Builder's Risk separately placed
+- Pollution $25M
+- Subguard NA — wrap is the alternative
+
+Loss history (24 months in):
+- 12 minor WC claims ($410K total)
+- 4 GL claims ($720K total: 2 third-party PD, 1 minor bodily injury, 1 dispute)
+- 1 open structural concern (not yet a claim): post-pour testing on floors 12-14 showed compressive strength 4,250 psi vs designed 5,000 psi; ENR-engaged forensic engineer recommended remediation (rebar/jacketing) on three column locations
+- Estimated remediation cost: $4.8M (additional concrete + steel reinforcement + schedule impact)
+- Project schedule impact: ~6 weeks net
+
+Coverage history:
+- Year 1 premium $4.85M total
+- Year 2 expiring at $5.12M
+
+Renewal indications (Year 3):
+- Liberty Mutual / Liberty IM lead: $5.85M (+14%), structural issue carve-out language: "claims arising from compressive-strength deficiency on floors 12-14 excluded unless remediation work performed under separate work-order with carrier pre-approval"
+- Travelers Construction: $5.65M (+10%), no carve-out
+- Zurich North America: $6.10M (+19%), no carve-out, includes professional sublimit increase
+- Old Republic: $5.78M, requests separate retention on structural-related claims ($500K)
+
+Other:
+- TX Construction Trust Act / lien law exposure on OCIP funding
+- Hotel + residential mix triggers different completed-ops tail (10-year statute of repose, TX CPRC § 16.008)
+- A second forensic engineer (insured-engaged) is preparing an independent report Q2 2026""",
+    primary_specialty="construction",
+    additional_specialties=["complex-casualty"],
+    difficulty=4,
+    time_limit_minutes=55,
+    packet={
+        "Project": "42-story mixed-use, $580M, Austin TX",
+        "Wrap structure": "OCIP — WC + GL + Excess $200M",
+        "24-mo losses": "$1.13M ($410K WC + $720K GL)",
+        "Structural issue": "Floors 12-14 compressive strength 4,250 vs 5,000 psi; $4.8M remediation + 6 wk delay",
+        "Liberty carve-out": "Floors 12-14 claims excluded unless pre-approved",
+        "Indications": "Travelers $5.65M (no carve) · Old Rep $5.78M ($500K str retention) · Liberty $5.85M · Zurich $6.10M",
+    },
+    red_flag_options=[
+        "Compressive strength deficiency (floors 12-14)",
+        "Liberty structural carve-out language",
+        "10-year statute of repose tail",
+        "Mixed-use completed-ops complexity",
+        "Independent forensic report pending",
+        "Subguard alternative not in place",
+        "Schedule pressure from remediation",
+        "TX construction trust law exposure",
+    ],
+    model_rationale="""This is a **quote with modifications** — Travelers at $5.65M (+10%) with no structural carve-out is the right answer. Liberty's carve-out is a tail-risk problem.
+
+**The Liberty carve-out is unacceptable.** "Claims arising from compressive-strength deficiency on floors 12-14 excluded unless remediation work performed under separate work-order with carrier pre-approval" sounds reasonable but creates a 10-year tail-risk problem:
+- TX statute of repose (CPRC § 16.008) allows construction-defect claims for up to 10 years from substantial completion.
+- If the remediation is "approved" by Liberty today, what happens if a downstream claim is filed in 2034 alleging the remediation itself was inadequate?
+- The carve-out language doesn't clearly cover the remediation's tail.
+- **This is a coverage trap.** Reject.
+
+**Travelers at no carve-out** is the structurally correct insurer for a tail-risk-heavy mixed-use project.
+
+**Structural issue analysis.** 4,250 psi vs designed 5,000 psi is 15% below spec — material but remediable. Standard construction-defect approach:
+- Forensic root cause: was it bad concrete mix, water/cement ratio issue, curing problem, or rebar inspection failure?
+- Allocation: concrete supplier (likely contractually responsible for spec compliance), forming/placement contractor (placement procedure), GC (inspection oversight), structural engineer of record (design margin)
+- Remediation: jacketing the 3 column locations with additional reinforcement is industry-standard for moderate strength deficiencies
+- Long-term performance: properly remediated structures meet 99%+ of original design capacity; tail risk is manageable
+
+**Independent forensic report.** Insured engaging a second forensic engineer is good practice — establishes the record for allocation and supports any subrogation claim against concrete supplier. **Wait for this report before negotiating coverage language with carrier.**
+
+**Completed-ops tail.** $25M per project aggregate. TX statute of repose 10 yr means tail extends to ~2035. **Confirm Travelers' completed-ops form carries forward post-COD with 10-year discovery period and standard hot-/cold-aggregate language.**
+
+**Excess tower.** $200M is standard for a $580M mixed-use tower in a top-tier metro. No structural concerns about tower height; verify each layer's structural-defect coverage is consistent with primary (especially around the open issue).
+
+**Pricing band.** $5.50M–$6.00M defensible. Travelers at $5.65M low-mid band.
+
+**Recommendation.** Bind Travelers at $5.65M subject to:
+1. Independent forensic report shared with carrier upon completion (Q2 2026).
+2. Structural remediation work plan reviewed and signed off by Travelers loss-control engineer before work begins.
+3. Subrogation allocation theory documented within 60 days (concrete supplier, placement contractor, structural EOR).
+4. Confirm 10-year completed-ops tail consistent with TX statute of repose, with hot-aggregate framework for downstream claims.
+5. Reject Liberty's carve-out approach.
+6. Quarterly construction-defect / remediation update through completion.""",
+    model_premium_low=5500000,
+    model_premium_high=6000000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "Structural carve-out tail risk", "match": ["carve-out", "exclusion", "floors 12-14", "Liberty", "tail"], "weight": 1},
+        {"label": "Compressive strength analysis", "match": ["4,250", "5,000 psi", "compressive", "spec", "remediation", "jacketing"], "weight": 1},
+        {"label": "TX statute of repose (10-yr)", "match": ["statute of repose", "CPRC", "§ 16.008", "10-year", "completed ops"], "weight": 1},
+        {"label": "Subrogation allocation", "match": ["subrogation", "concrete supplier", "placement", "structural engineer", "allocation"], "weight": 1},
+        {"label": "Forensic engineer", "match": ["forensic", "ENR", "independent", "report", "root cause"], "weight": 1},
+        {"label": "Completed-ops form", "match": ["completed ops", "hot aggregate", "cold aggregate", "discovery", "tail"], "weight": 1},
+        {"label": "OCIP vs subguard / wrap structure", "match": ["OCIP", "wrap-up", "owner-controlled", "subguard"], "weight": 1},
+        {"label": "Path forward", "match": ["Travelers", "bind", "subject to", "approve"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Compressive strength deficiency (floors 12-14)",
+        "Liberty structural carve-out language",
+        "10-year statute of repose tail",
+        "Independent forensic report pending",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-033",
+    slug="construction-residential-tract-developer",
+    title="Construction — residential tract developer, post-defect litigation profile",
+    summary="TX tract home developer, 1,400 closings/yr. 6 active construction-defect suits + a recurring stucco/EIFS issue. Renew GL + completed-ops.",
+    scenario="""Renewal for a Texas residential tract home developer.
+
+Operations:
+- 1,400 closings/yr across DFW + Austin metros + Houston exurbs
+- Average sales price: $385K
+- Total annual revenue: $540M
+- Subcontractor model: 100% trade subs (no employed labor); 480 enrolled subs; insured pays AI/waiver coverage on every contract
+- Inventory in production at any time: ~580 homes
+
+Coverage history:
+- GL $2M / $4M / $10M product-completed ops aggregate
+- Contractor's Pollution Liability $5M
+- Builders Risk separately placed
+- Excess $25M
+
+Loss profile (5 yr):
+- 18 active claims/suits (12 plumbing/water intrusion, 4 stucco/EIFS, 2 foundation movement)
+- Settled in last 24 months: 27 matters, $4.8M total ($380K avg, range $25K-$1.4M)
+- Open reserves on 18 active: $3.6M
+- Stucco/EIFS issue specifically: 9 of the closed claims + 4 of the open ones (recurring exterior cladding water-intrusion pattern on 2019-2022 vintage homes)
+
+Renewal indications:
+- Zurich Construction: $1.85M (+18%), keeps $10M completed-ops aggregate, requires EIFS-class corrective program documented
+- Liberty Construction: $1.95M (+24%), reduces completed-ops aggregate to $7M
+- Berkshire Hathaway Specialty (BHSI): $1.78M (+12%), maintains aggregate, requires AI-tender protocol audit
+- Markel: $2.05M (+30%), broadest coverage, no aggregate reduction
+
+Other:
+- TX Property Code § 27.001 et seq. (Residential Construction Liability Act) governs notice-and-opportunity-to-cure
+- Two of the active 4 EIFS cases are part of a homeowner-association coordinated litigation (50+ homes in one subdivision)
+- Insurer-funded EIFS remediation pilot Q4 2025 (12 homes, $1.4M); efficacy data pending
+- HUD / VA inspection compliance: clean
+- Subcontractor AI-tender response rate (subs' carriers tendering coverage on insured-named claims): 62% over past 24 months — industry average ~78%""",
+    primary_specialty="construction",
+    additional_specialties=["habitational"],
+    difficulty=4,
+    time_limit_minutes=50,
+    packet={
+        "Closings/yr / revenue": "1,400 / $540M",
+        "Sub model": "100% subs (480 enrolled)",
+        "Loss history": "27 settled $4.8M / 18 active $3.6M open",
+        "EIFS pattern": "9 closed + 4 open, 2019-2022 vintage",
+        "AI-tender rate": "62% (vs industry 78%)",
+        "Indications": "BHSI $1.78M (AI audit) · Zurich $1.85M (EIFS req) · Liberty $1.95M (agg ↓) · Markel $2.05M",
+        "TX RCLA": "Notice-and-cure governance",
+    },
+    red_flag_options=[
+        "Recurring EIFS/stucco pattern",
+        "Liberty completed-ops aggregate reduction",
+        "HOA coordinated litigation",
+        "Low AI-tender response rate (62%)",
+        "Aggregate adequacy vs open reserves",
+        "Foundation movement claims",
+        "TX RCLA notice/cure compliance",
+        "Multi-vintage cladding exposure",
+    ],
+    model_rationale="""This is a **quote with modifications** — BHSI at $1.78M with the AI-tender protocol audit requirement is the structurally right answer. The recurring EIFS pattern and the 62% AI-tender rate are both addressable, and BHSI is focused on the operational fix rather than a coverage carve-out.
+
+**The EIFS / stucco pattern is the dominant risk.** 9 closed + 4 open claims on 2019-2022 vintage suggests:
+- Either a specific subcontractor or specific cladding product is responsible
+- Or a design detail (window flashing, weep system, control joints) is industry-wide for those vintages
+**Standard pattern-recovery approach:**
+- Identify the specific subs across the affected homes
+- Pull AI/waiver certificates and confirm they were on the project schedule
+- Tender every claim to the responsible sub's GL carrier
+- Pursue subro on the cladding product manufacturer if applicable
+The Q4 2025 remediation pilot is the right operational step. **EIFS-class corrective program (Zurich's requirement) is good underwriting** but BHSI's AI-tender audit is more directly attacking the cost-recovery gap.
+
+**62% AI-tender rate vs 78% industry.** That 16-point gap represents real money. On $4.8M settled, every 5 points of additional tender response = ~$240K of recovery. **Tightening the AI-tender protocol could recover $750K+ per cycle.** Standard approach:
+- Documented chain-of-custody on every subcontract: AI endorsement, waiver of subrogation, additional-insured form
+- Project-specific AI verification at contract execution
+- Automated tender workflow within 30 days of claim notice
+- Tracking dashboard with carrier panel counsel
+
+**Liberty's aggregate reduction.** $7M completed-ops aggregate vs current $10M is materially adverse for a developer with $3.6M in open reserves and 27 settled matters in 2 years. **Reject Liberty.**
+
+**TX RCLA compliance.** Texas Property Code Chapter 27 requires:
+- 60-day notice from homeowner with specific defect identification
+- Inspection opportunity
+- Settlement offer or election to repair
+- Failure to follow gives builder defenses
+**Confirm RCLA compliance protocols are documented and that the BHSI form's claims-handling requirements align with RCLA timelines.**
+
+**HOA coordinated litigation.** 50+ homes in one subdivision presents specific exposure:
+- Class-action-like dynamics even if not formally certified
+- HOA may have separate contract claims (common-area / shared-wall components)
+- Coordinated discovery + expert witness costs significantly higher
+**Reserve adequacy on the 2 active HOA-coordinated cases needs to be confirmed.**
+
+**Aggregate adequacy.** $10M completed-ops aggregate vs $3.6M open reserves + ongoing claim pace ~$2.4M/yr settled = aggregate could be tight in a bad year. **Recommend stacking $5M excess completed-ops** ($85K–$120K target) for additional buffer.
+
+**Pricing band.** $1.70M–$2.05M defensible. BHSI $1.78M low-band with strongest structural fix requirement.
+
+**Recommendation.** Bind BHSI at $1.78M subject to:
+1. AI-tender protocol audit completed within 90 days; target tender response rate 78%+ within 12 months.
+2. EIFS pattern-recovery program: subcontractor identification + tender + product-manufacturer subrogation tracking.
+3. Stack $5M excess completed-ops aggregate (target $95K).
+4. RCLA-compliance procedures reviewed and confirmed with carrier panel counsel.
+5. HOA-coordinated litigation reserve adequacy review.
+6. Reject Liberty completed-ops reduction.
+7. Quarterly claims trend review through year 1.""",
+    model_premium_low=1700000,
+    model_premium_high=2050000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "EIFS / stucco pattern", "match": ["EIFS", "stucco", "cladding", "pattern", "2019-2022", "water intrusion"], "weight": 1},
+        {"label": "AI-tender protocol", "match": ["AI", "additional insured", "tender", "62%", "78%", "waiver"], "weight": 1},
+        {"label": "Subrogation / product mfr", "match": ["subrogation", "product manufacturer", "cladding", "subcontractor", "recovery"], "weight": 1},
+        {"label": "TX RCLA compliance", "match": ["RCLA", "Chapter 27", "notice", "cure", "Property Code"], "weight": 1},
+        {"label": "Completed-ops aggregate", "match": ["completed ops", "aggregate", "$10M", "$7M", "Liberty", "reduction"], "weight": 1},
+        {"label": "HOA coordinated litigation", "match": ["HOA", "coordinated", "50+ homes", "subdivision", "class"], "weight": 1},
+        {"label": "Aggregate adequacy", "match": ["aggregate", "$3.6M", "open reserves", "stack", "excess"], "weight": 1},
+        {"label": "Path forward", "match": ["BHSI", "Berkshire", "bind", "subject to"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Recurring EIFS/stucco pattern",
+        "Liberty completed-ops aggregate reduction",
+        "Low AI-tender response rate (62%)",
+        "Multi-vintage cladding exposure",
+    ],
+))
+
+
+# === BATCH 5: Entertainment + Environmental + Public Entity + Hospitality + Healthcare (10 cases)
+
+cases.append(Case(
+    code="DOJO-2026-034",
+    slug="entertainment-music-festival-3day",
+    title="Entertainment — 3-day outdoor music festival, 80K daily attendance",
+    summary="3-day outdoor festival in central TX. 80K daily attendance. Recent stage-collapse near-miss + crowd-crush event at competitor festival. Renew GL + special event.",
+    scenario="""Renewal for a 3-day outdoor music festival in central Texas.
+
+Event profile:
+- 80,000 daily attendance (240K total ticketed)
+- 4 stages (2 main + 2 secondary)
+- Headline acts: A-tier festival roster
+- Venue: 320-acre private ranch property, leased annually
+- Camping: 14,000 campers on-site
+- Bar / liquor sales on-site under TABC permit
+
+Coverage requested:
+- GL $2M / $5M aggregate
+- Liquor liability $5M
+- Special event $25M (excess of GL)
+- Stage rigging / temporary structures $10M
+- Auto liability (event-day shuttles + vendor vehicles) $1M
+- Cancellation / abandonment $48M (revenue + commitments)
+
+Loss history (5 yr — 5 events):
+- 2024: 1 stage-rigging near-miss (lighting truss began swaying during high wind; production suspended; no injuries; loss-of-show $2.4M paid under cancellation)
+- 2023: 14 minor patron-injury claims (slip/trip, dehydration) $185K
+- 2022: 1 alleged sexual assault on festival grounds (settled $310K, prior to current attendee-safety upgrades)
+- 2021: 1 patron death (cardiac arrest, no on-site negligence found; nuisance claim withdrawn)
+- 0 third-party crowd-crush events
+
+External context:
+- 2024 competitor festival in another state had crowd-crush event at headline-act compression zone; 8 fatalities, 30+ injuries; current litigation ~$80M in collective demands
+- Industry insurance market hardening since competitor crush event
+
+Renewal indications:
+- Berkley Entertainment: $1.45M total program, requires SIA-aligned crowd-management plan with capacity engineering for compression zones
+- Hiscox Special Risk: $1.65M, requires production-rider for stage rigging with wind-speed-action protocols
+- IronshoreSpecialty: $1.85M, broadest cancellation cover but with crowd-crush specific sublimit $5M
+- ARC Entertainment: $1.38M, but no cancellation cover (separate placement required)
+
+Other:
+- TABC permit active; insured documents responsible-server training for all on-site servers
+- Medical: contracted with Paradocs / Roadmedic for 18 on-site medics
+- Security: contracted firm with documented active-shooter + extraction protocols""",
+    primary_specialty="entertainment",
+    additional_specialties=["hospitality"],
+    difficulty=4,
+    time_limit_minutes=50,
+    packet={
+        "Event": "3-day outdoor festival, 80K daily / 240K total",
+        "Venue": "Private ranch, 320 acres",
+        "On-site camping": "14K",
+        "Loss history": "$2.4M cancellation (2024 wind) · $310K assault settlement · $185K patron",
+        "Industry context": "Competitor crowd-crush 2024 ($80M+ litigation)",
+        "Indications": "ARC $1.38M (no cancel) · Berkley $1.45M (SIA crowd plan req) · Hiscox $1.65M (wind protocol) · Ironshore $1.85M ($5M crush sub)",
+    },
+    red_flag_options=[
+        "Crowd-crush industry exposure",
+        "Stage-rigging wind-speed protocol gap",
+        "Compression zone capacity engineering",
+        "Camping site security",
+        "Liquor liability + on-site overserving",
+        "Prior sexual assault claim",
+        "Ironshore crowd-crush sublimit",
+        "Cancellation cover separation risk",
+    ],
+    model_rationale="""This is a **quote with modifications** — Berkley Entertainment at $1.45M with the SIA-aligned crowd-management plan requirement is the right answer. The industry post-crush litigation environment makes crowd engineering the top priority.
+
+**Crowd-crush is the new dominant risk.** The 2024 competitor event with 8 fatalities + $80M+ in collective demands has fundamentally re-priced festival GL. Carriers expect:
+- SIA (Sports & Industrial Authority — UK reference standard) or Event Safety Alliance Guide alignment
+- Compression-zone identification + capacity calculations (pax/sqm density modeling)
+- Wave-based admission to high-demand pits
+- Real-time density monitoring (drone or fixed-camera analytics)
+- Trained crowd managers with documented action levels
+
+**Berkley's structural requirement is the right underwriting.** Industry will price for the controls; carriers without the controls are either ignorant or pricing in claims.
+
+**Ironshore's $5M crowd-crush sublimit** is materially inadequate. A single event at this attendance scale could produce 100+ injury claims plus fatalities; $5M is one settlement, not a tower. Reject Ironshore.
+
+**Stage-rigging / wind protocol.** Hiscox's production-rider requirement is good practice. Standard wind-action protocols:
+- Continuous anemometer monitoring on each stage
+- 25 mph sustained = warning
+- 35 mph sustained = pre-stop preparation
+- 45 mph sustained = production stop
+- Lightning within 8 miles = stop
+**Berkley should require this too; confirm.**
+
+**Liquor liability.** $5M is the right limit. TABC compliance documented; responsible-server training in place. Post-event over-service patterns from prior years should drive layout decisions (server-to-patron ratios in high-volume zones).
+
+**Camping zone security.** 14K campers + private property + late-night activity = different risk profile from the day program. Recommend:
+- Documented 24/7 patrol coverage
+- Reporting / escalation protocol for sexual misconduct
+- Substance-use harm-reduction (Narcan + medical at every camp zone)
+- Lighting + clear sightlines
+
+**Cancellation cover.** $48M for the program (revenue + commitments). Standard event cancellation perils:
+- Named windstorm, severe convective storm (high TX exposure)
+- Civil authority order
+- Communicable disease (post-COVID, may have specific exclusions)
+- Headline-act cancellation (key-act insurance)
+**Wind cancellation is the high-frequency peril** in central TX in late spring/summer; confirm the cover responds at standard parametric or named-storm definitions.
+
+**Pricing band.** $1.40M–$1.75M defensible. Berkley at $1.45M low-mid band, structurally aligned. ARC at $1.38M is cheaper but cancellation is separate — net comparison favors Berkley.
+
+**Recommendation.** Bind Berkley Entertainment at $1.45M subject to:
+1. SIA / ESA Guide-aligned crowd-management plan documented within 60 days.
+2. Compression-zone density modeling for each stage with action levels.
+3. Real-time density monitoring (camera analytics) deployed.
+4. Wind-speed action protocols for all stages.
+5. Camping-zone security plan + harm-reduction stations confirmed.
+6. Cancellation cover with named-windstorm + severe-convective-storm parametric trigger.
+7. Loss-control walk-through with carrier engineer pre-event.""",
+    model_premium_low=1400000,
+    model_premium_high=1750000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "Crowd-crush risk / SIA standards", "match": ["crowd-crush", "compression", "SIA", "ESA", "density", "pax/sqm"], "weight": 1},
+        {"label": "Wind-speed stage protocol", "match": ["wind", "anemometer", "25 mph", "35 mph", "45 mph", "production stop"], "weight": 1},
+        {"label": "Real-time density monitoring", "match": ["camera", "analytics", "density", "real-time", "drone"], "weight": 1},
+        {"label": "Camping zone risk profile", "match": ["camping", "14K", "patrol", "Narcan", "harm reduction"], "weight": 1},
+        {"label": "Liquor / TABC compliance", "match": ["TABC", "responsible server", "liquor", "over-service"], "weight": 1},
+        {"label": "Cancellation perils / parametric", "match": ["cancellation", "wind", "parametric", "severe convective", "named storm"], "weight": 1},
+        {"label": "Ironshore sublimit inadequacy", "match": ["Ironshore", "$5M sublimit", "crowd-crush", "inadequate"], "weight": 1},
+        {"label": "Path forward", "match": ["Berkley", "bind", "subject to", "approve"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Crowd-crush industry exposure",
+        "Stage-rigging wind-speed protocol gap",
+        "Ironshore crowd-crush sublimit",
+        "Camping site security",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-035",
+    slug="sports-youth-club-soccer-league",
+    title="Sports — multi-state youth club soccer league + tournaments",
+    summary="Youth club soccer league across 4 states, 14K athletes, recent concussion class-action pending. Renew league + tournament policies.",
+    scenario="""Renewal for a regional youth club soccer league.
+
+Operations:
+- 14,000 enrolled athletes (ages 8-19)
+- 280 member clubs across TX, OK, AR, LA
+- 4 owned/operated regional tournaments per year (~8,000 athletes participating)
+- Coaches: ~2,200 (volunteer + paid mix)
+- Headcount league office: 24
+
+Coverage requested:
+- General liability $2M / $4M (league + member-club blanket)
+- Excess liability $25M
+- Sexual abuse & molestation (SAM) liability $5M
+- Accident medical $50K per athlete (primary)
+- Property + crime $5M
+
+Open matter:
+- Concussion class-action filed 2025 Q4 in TX state court by 38 former players alleging:
+  * Failure to enforce return-to-play protocols
+  * Inadequate coach training on concussion recognition
+  * Allegedly causing CTE-like symptoms in adult life
+  * Demand $48M aggregate, certification pending
+- 1 SAM claim filed 2024 against a former coach at member club; insured tendered to coach-employer (member club) and to coach's individual policy; insured's name on suit; expected settlement zone $250K–$700K
+
+Loss history (otherwise, 5 yr):
+- 84 minor athlete-injury claims (slips, collisions) $410K total
+- 1 spectator slip-and-fall at tournament $58K
+- 0 fatalities
+
+Renewal indications:
+- USSF-endorsed program (League Insurance Solutions): $385K total, broad coverage, concussion claim defense included
+- Markel Sports: $445K, SAM-specific defense costs ringfenced
+- ARC Sports & Leisure: $410K, requires concussion-protocol documentation + coach-training certification audit
+- K&K Insurance: $425K, requires return-to-play protocol per CDC / Heads Up Youth Sports
+
+Other:
+- TX, OK, LA all have youth-sports concussion statutes (TX Education Code § 38.151 et seq.); compliance varies by member club
+- Coach background-check policy: mandatory annual since 2022 (third-party vendor); pre-2022 records spotty
+- USSF / FIFA insurance scheme is voluntary; insured is a participating member""",
+    primary_specialty="sports",
+    additional_specialties=["multi-jurisdictional"],
+    difficulty=4,
+    time_limit_minutes=50,
+    packet={
+        "Athletes / clubs / coaches": "14K / 280 / 2,200",
+        "States": "TX, OK, AR, LA",
+        "Open class action": "TX, 38 plaintiffs, $48M concussion demand",
+        "Open SAM claim": "$250K-$700K settlement zone",
+        "Indications": "USSF program $385K · ARC $410K (protocol req) · K&K $425K (CDC return-to-play) · Markel $445K",
+        "Concussion statute": "TX Edu Code § 38.151",
+    },
+    red_flag_options=[
+        "Open concussion class-action",
+        "SAM claim pre-2022 vintage",
+        "Coach background pre-2022 gap",
+        "Return-to-play protocol variability",
+        "CTE litigation industry trend",
+        "Multi-state statute compliance",
+        "Volunteer coach training depth",
+        "USSF scheme dependency",
+    ],
+    model_rationale="""This is a **quote with modifications** — ARC Sports & Leisure at $410K with the concussion-protocol documentation requirement is the structurally correct answer. The concussion class-action is the dominant exposure.
+
+**Concussion class-action analysis.** The 38-plaintiff CTE-symptom case is the leading edge of youth-sports head-injury litigation. Industry precedent:
+- NFL settlement framework: $1.5B+ paid since 2017
+- NHL, NCAA, FIFA all subject to comparable theories
+- Youth-sports cases are newer; certification challenges + statute-of-limitations issues create defense leverage
+**Expected progression:**
+- Class certification challenge (TRCP 42) likely contested
+- If certified, settlement zones $5M-$25M per cohort
+- If not certified, individual cases settle $25K-$300K each
+
+**Coverage analysis.** Most sports GL policies have **CTE-specific exclusions or carve-outs** post-2022. **Verify each indication's policy form** before binding:
+- USSF program: typically broadest defense, may exclude CTE-specific damages
+- Markel: SAM-specific defense ringfencing is helpful for the separate SAM matter
+- ARC: protocol-documentation requirement aligns with the active class-action defense
+- K&K: CDC Heads Up alignment is the strongest defense narrative
+
+**ARC's protocol audit is the right risk-control investment.** Required components for defense:
+- Annual coach training (CDC Heads Up Youth Sports certification)
+- Documented return-to-play decision tree
+- Athlete + parent signed concussion-awareness acknowledgment
+- Incident reporting protocol with neurologist clearance for return
+**This is also litigation defense gold** — every settlement negotiation hinges on documented compliance with industry standards at the time of the alleged injuries.
+
+**SAM claim.** $250K-$700K settlement zone on a coach-employer case where insured is named. **Confirm the SAM coverage responds for vicarious liability claims even where the alleged perpetrator is not an employee of insured.** Many policies have "named insured employee" triggers that don't extend to member-club coaches.
+
+**Coach background-check gap (pre-2022).** Older coaches whose backgrounds were not re-checked under the current vendor protocol = potential exposure. Recommend:
+- Re-background-check all currently active coaches regardless of vintage
+- Document the program upgrade in policy file
+- Use this as defense evidence for any pre-2022 alleged misconduct case
+
+**Multi-state statute compliance.** TX, OK, LA all have youth-sports concussion statutes. **Member-club compliance variability** is the operational exposure. Recommend a league-mandated annual compliance certification with audit of 10% of member clubs each year.
+
+**Pricing band.** $380K-$465K defensible. ARC at $410K is mid-band, structurally aligned.
+
+**Recommendation.** Bind ARC Sports & Leisure at $410K subject to:
+1. Concussion-protocol documentation completed within 60 days (CDC Heads Up alignment).
+2. Coach training certification audit completed within 120 days.
+3. Re-background-check all currently active coaches within 12 months.
+4. SAM coverage form confirmed for vicarious liability on member-club coaches.
+5. Class-action defense coordinated with carrier panel counsel.
+6. Annual member-club compliance certification + 10% audit.""",
+    model_premium_low=380000,
+    model_premium_high=465000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "Concussion class-action / CTE", "match": ["concussion", "CTE", "class action", "$48M", "certification"], "weight": 1},
+        {"label": "Return-to-play protocol", "match": ["return-to-play", "CDC", "Heads Up", "neurologist", "clearance"], "weight": 1},
+        {"label": "Coach training certification", "match": ["coach training", "certification", "annual", "Heads Up"], "weight": 1},
+        {"label": "SAM vicarious liability", "match": ["SAM", "vicarious", "sexual abuse", "molestation", "named insured"], "weight": 1},
+        {"label": "Background-check program", "match": ["background check", "pre-2022", "vendor", "annual"], "weight": 1},
+        {"label": "Multi-state statute compliance", "match": ["TX", "OK", "LA", "concussion statute", "§ 38.151"], "weight": 1},
+        {"label": "Carrier policy form CTE coverage", "match": ["CTE exclusion", "carve-out", "policy form", "defense"], "weight": 1},
+        {"label": "Path forward", "match": ["ARC", "bind", "subject to", "approve"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Open concussion class-action",
+        "Coach background pre-2022 gap",
+        "Return-to-play protocol variability",
+        "CTE litigation industry trend",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-036",
+    slug="environmental-brownfield-redevelopment",
+    title="Environmental — 28-acre brownfield to mixed-use redevelopment",
+    summary="Former industrial site redevelopment with active state VCP. Pre-development PFAS detection. PLL + environmental impairment liability renewal.",
+    scenario="""Environmental insurance renewal for a 28-acre brownfield mixed-use redevelopment.
+
+Site history:
+- Former metal-plating + light manufacturing operation, 1948-1998
+- Vacant 1998-2022
+- Acquired by current developer 2022 with Phase I + Phase II ESAs
+- Entered TX Voluntary Cleanup Program (VCP) 2023
+- Current status: VCP Phase 2 — corrective action plan approved Q2 2025
+
+Redevelopment plan:
+- 480-unit apartment, 220,000 sf retail/office, 8 acres greenspace
+- COD target: Q2 2028
+- Construction starts Q3 2026
+
+Coverage requested:
+- Pollution Legal Liability (PLL) $25M / $50M (10-year term)
+- Environmental Impairment Liability $15M
+- Construction-phase contractor's pollution liability $10M
+- Cost-cap insurance — separate placement under review
+
+Known contamination:
+- Hexavalent chromium (Cr-VI) in soil + perched groundwater across ~6 acres of the western portion
+- TCE / PCE in soil vapor; vapor intrusion mitigation required at building footprints
+- VCP-approved remediation: excavation + off-site disposal of impacted soil; in-situ chemical reduction for groundwater; vapor barrier + sub-slab depressurization for buildings
+
+New finding (Q1 2026):
+- Sampling for PFOA / PFOS during construction pre-mob revealed PFAS in groundwater at concentrations 280-410 ng/L (EPA MCL 4 ng/L effective 2024)
+- Source uncertain: could be related to historic metal-plating (aqueous film-forming foam? firefighting?), or off-site upgradient source
+- Not addressed in VCP corrective action plan
+
+Coverage history:
+- Year 1 PLL $580K
+- Carrier: Beazley Environmental
+
+Renewal indications:
+- Beazley: $1.85M (+219% to address PFAS), but excludes PFAS unless source confirmed on-site by independent forensic
+- AXA XL Environmental: $1.62M (+179%), includes PFAS subject to claims-cooperation requirement
+- Allianz: $1.95M, includes PFAS, but cost-cap separately required ($25M cap, $850K premium)
+- AIG Environmental: declines PFAS-affected renewal
+
+Other:
+- TCEQ requires PFAS investigation for VCP sites with discovered PFAS; cost estimate $480K
+- Adjacent property (1/4 mile downgradient) is a former military installation — potential PFAS contributor
+- Developer financing requires environmental insurance for closing on construction loan ($240M senior debt)""",
+    primary_specialty="environmental",
+    additional_specialties=["construction"],
+    difficulty=5,
+    time_limit_minutes=55,
+    packet={
+        "Site": "28 ac former metal-plating, TX VCP",
+        "Redevelopment": "480 units + 220K sf retail/office",
+        "Known contamination": "Cr-VI + TCE/PCE soil vapor",
+        "PFAS finding": "280-410 ng/L vs EPA MCL 4 ng/L",
+        "PFAS source": "Uncertain (on-site or upgradient military)",
+        "Indications": "AXA XL $1.62M (claims-coop) · Beazley $1.85M (PFAS excl unless source confirmed) · Allianz $1.95M (cost-cap req) · AIG declined",
+        "Construction loan": "$240M senior debt requires env insurance",
+    },
+    red_flag_options=[
+        "PFAS discovery (post-MCL)",
+        "PFAS source uncertainty",
+        "Beazley PFAS exclusion",
+        "VCP plan not addressing PFAS",
+        "Cost-cap requirement",
+        "Construction financing dependency",
+        "AIG decline (capacity signal)",
+        "Adjacent military installation (upgradient)",
+    ],
+    model_rationale="""This is a **quote with modifications** — AXA XL at $1.62M with the claims-cooperation requirement on PFAS is the right structural answer. PFAS coverage is the gating issue and AXA XL is the only realistic indication that includes it without an exclusion or carve-out trap.
+
+**PFAS exposure dominates the underwriting.** EPA's 2024 final MCL of 4 ng/L for PFOA + PFOS made every prior site investigation potentially obsolete. The 280-410 ng/L detection is 70-100x over MCL. **This finding alone will drive 80% of expected loss for the next 5 years.**
+
+**Source determination is the gating analytical work.** The carriers' divergent positions are essentially bets on source:
+- **If source is on-site historic** (e.g., metal-plating AFFF / firefighting foam) → developer owns the cleanup
+- **If source is upgradient military installation** → CERCLA cost-recovery action available against the federal government; developer is a downstream impacted party
+**Recommend immediate engagement of independent forensic environmental firm** (e.g., Arcadis, Ramboll) to do isotope-fingerprinting + groundwater-flow modeling. Cost: $180-280K, 4-6 month timeline. Result determines:
+- Long-term cleanup cost ($2M-$25M range)
+- Subrogation viability
+- Beazley's coverage trigger
+
+**Beazley exclusion analysis.** "Excludes PFAS unless source confirmed on-site by independent forensic" — this is a coverage CONDITIONAL, not a flat exclusion. If forensic establishes on-site source, Beazley covers; if upgradient, Beazley still excludes but developer has CERCLA recovery instead. **The conditional is structurally OK but the +219% premium is a fee for taking the bet wrong.**
+
+**AXA XL claims-cooperation** is more straightforward — broader coverage with operational requirement to coordinate on remediation decisions with the carrier. Standard environmental insurance practice.
+
+**Cost-cap insurance.** Allianz's separate $25M cost-cap requirement is the conservative approach to a long-tail remediation with uncertain scope. Cost-cap responds when actual remediation costs exceed estimated scope; premium is typically 6-12% of cap. For $25M cap at $850K, that's 3.4% — favorable pricing if PFAS scope is bounded.
+
+**Construction-phase risk.** $10M CPL for contractor activity is essential. During excavation, undiscovered hot spots can spike short-term remediation costs. Confirm the CPL is on a "discovered conditions" basis and not retroactively excluded for the PFAS finding.
+
+**Financing dependency.** $240M senior debt closing requires environmental insurance binding. **Lender independent engineer (IE) will review every policy form.** Timeline pressure could force binding before forensic conclusions.
+
+**Pricing band (total environmental program).** Defensible band: **$1.50M-$2.20M PLL + $850K cost-cap (if Allianz-style) + $185K CPL ≈ $2.5M-$3.2M total.**
+
+**Recommendation.** Bind AXA XL PLL $1.62M + Allianz cost-cap $25M $850K + separate CPL $185K = ~$2.66M total. Subjectivities:
+1. Forensic source-determination study commissioned within 30 days; results shared with all carriers + lender IE.
+2. VCP corrective action plan amendment for PFAS addressed within 6 months of TCEQ guidance.
+3. Cost-cap engagement scope tied to forensic findings.
+4. Subrogation strategy documented if upgradient military source confirmed.
+5. Construction-phase CPL bound before mobilization.
+6. Quarterly remediation status calls with all environmental carriers.""",
+    model_premium_low=2500000,
+    model_premium_high=3200000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "PFAS exposure (post-MCL)", "match": ["PFAS", "PFOA", "PFOS", "MCL", "4 ng/L", "280-410"], "weight": 1},
+        {"label": "Source determination / isotope", "match": ["source", "forensic", "isotope", "fingerprint", "groundwater flow", "Arcadis", "Ramboll"], "weight": 1},
+        {"label": "Upgradient military installation", "match": ["military", "upgradient", "AFFF", "CERCLA", "subrogation"], "weight": 1},
+        {"label": "Beazley conditional exclusion", "match": ["Beazley", "conditional", "exclusion", "source confirmed"], "weight": 1},
+        {"label": "Cost-cap insurance economics", "match": ["cost-cap", "$25M", "$850K", "remediation", "scope"], "weight": 1},
+        {"label": "Construction-phase CPL", "match": ["CPL", "contractor pollution", "discovered conditions", "excavation"], "weight": 1},
+        {"label": "Lender IE / financing", "match": ["lender", "IE", "independent engineer", "$240M", "senior debt"], "weight": 1},
+        {"label": "Path forward", "match": ["AXA XL", "Allianz", "bind", "subject to"], "weight": 1},
+    ],
+    model_red_flags=[
+        "PFAS discovery (post-MCL)",
+        "PFAS source uncertainty",
+        "Beazley PFAS exclusion",
+        "Construction financing dependency",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-037",
+    slug="environmental-storage-tank-portfolio",
+    title="Environmental — 84-site UST portfolio for petroleum retailer",
+    summary="Convenience-store chain with 84 sites, 320 underground storage tanks. Two release events + state trust-fund deductible question. Renew tank pollution.",
+    scenario="""Storage Tank Pollution Liability renewal for a regional convenience-store chain.
+
+Operations:
+- 84 retail sites (TX, OK, NM, AR)
+- 320 underground storage tanks (mix of gasoline, diesel, kerosene)
+- ~70% double-walled fiberglass; 30% single-walled steel (older)
+- Annual fuel throughput: 480M gallons
+- Phase-out plan: single-walled tanks to be removed by 2030
+
+Coverage requested:
+- Storage Tank Pollution Liability $5M per occurrence / $10M aggregate
+- 84-site site-pollution coverage
+- Cleanup + 3rd-party BI / PD
+
+Loss history (5 yr):
+- 2024 release at NM site: piping leak detected by interstitial monitor; ~85 gallons released to soil; cleanup $185K
+- 2023 release at TX site: dispenser sump compromised by hailstorm; product release to surface; cleanup $58K
+- 4 minor compliance findings (annual tightness testing); no enforcement
+- 0 third-party BI claims
+
+Coverage history:
+- Year 4 with current carrier (Crum & Forster Environmental)
+- $385K expiring premium
+- TX trust fund ($25K deductible per occurrence) participating
+- OK Trust fund ($25K) participating
+- NM has no fund; full deductible to insured ($50K)
+
+Renewal indications:
+- Crum & Forster: $445K (+16%), keeps current structure
+- Old Republic Environmental: $410K (+7%), but $35K aggregate per-tank vs current $50K
+- Zurich Environmental: $485K, includes corrosion-related cleanup expansion
+- AXIS Environmental: declines new business in TX retail petroleum
+
+Other:
+- EPA / OSHA / state UST regulators all have active enforcement programs
+- Cathodic protection on steel tanks: required annual surveys; 8 of 84 sites flagged 2024 review for CP system upgrades
+- Tank tightness testing: annual on all 320; latest cycle complete Q1 2026
+- Site assessment + corrective action records available for due diligence""",
+    primary_specialty="environmental",
+    additional_specialties=["energy"],
+    difficulty=3,
+    time_limit_minutes=40,
+    packet={
+        "Sites / tanks": "84 / 320",
+        "Throughput": "480M gal/yr",
+        "Tank mix": "70% FRP double-wall / 30% steel single-wall",
+        "5-yr losses": "$185K NM piping + $58K TX hail",
+        "Indications": "Old Republic $410K (per-tank ↓) · Crum & Forster $445K · Zurich $485K · AXIS declined",
+        "Trust funds": "TX + OK participating ($25K), NM no fund",
+        "CP upgrades pending": "8 sites flagged",
+    },
+    red_flag_options=[
+        "Single-walled steel tank exposure (30%)",
+        "Cathodic protection upgrade backlog (8 sites)",
+        "AXIS decline on TX retail petroleum",
+        "Old Republic per-tank aggregate reduction",
+        "NM no-trust-fund deductible exposure",
+        "Hail-related piping vulnerability",
+        "Phase-out timeline (2030)",
+        "Regulator enforcement environment",
+    ],
+    model_rationale="""This is an **approve** with Crum & Forster (incumbent) at $445K. Continuity has value, the structure is clean, and the +16% reflects industry rate movement appropriately.
+
+**Old Republic's per-tank aggregate reduction is the trap.** Going from $50K per-tank to $35K aggregate per-tank means each tank's coverage drops 30%. With 320 tanks across 84 sites, a release on a tank that's seen prior minor activity could exhaust its sublimit. **Reject Old Republic** despite slightly lower price.
+
+**Single-walled steel tank exposure.** 30% of tanks (~96 tanks) are single-walled steel and subject to corrosion-related failure. Cathodic protection compliance is the leading risk-mitigation:
+- 8 sites flagged for CP upgrades = ~$95K CapEx ($12K/site typical)
+- Failure to upgrade = corrosion-related release in 3-7 year window
+- **Recommend the insured execute the 8-site CP upgrade within 12 months** as a binding subjectivity
+
+**Tank phase-out plan.** 2030 single-walled phase-out is reasonable timeline. Confirm:
+- Sites prioritized by tank age + corrosion vulnerability
+- CapEx schedule documented
+- Replacement tank specs aligned with EPA Subtitle I + state requirements
+- Tank-removal procedures and contractor pre-qualified
+
+**Trust fund participation.** TX + OK trust funds responding at $25K deductible is favorable. NM no-fund means insured carries full $50K. **Confirm Crum & Forster form coordinates correctly with trust funds** — some forms have "exhaustion of trust fund" trigger language that delays primary response.
+
+**Hail-related risk.** 2023 dispenser sump compromise from hail is the secondary concern. Standard hail-mitigation:
+- Dispenser canopy structural integrity (rated for 1.5" hail minimum)
+- Sump-level monitoring with cellular reporting
+- Sump cover materials upgrade where original is degraded
+**For TX/OK/NM with elevated hail frequency, this is operational maintenance, not catastrophic risk.**
+
+**Tank tightness testing.** Annual on all 320 tanks — compliant with federal + state requirements. No findings is the good story.
+
+**Pricing band.** $395K-$485K defensible. Crum & Forster at $445K mid-band.
+
+**Recommendation.** Bind Crum & Forster at $445K subject to:
+1. CP upgrade completion on 8 flagged sites within 12 months.
+2. Single-walled steel tank phase-out CapEx schedule documented and shared with carrier.
+3. Dispenser canopy + sump-cover inspection at all hail-zone sites within 6 months.
+4. Trust-fund coordination procedures confirmed in claim handling.
+5. Quarterly compliance review through year 1.""",
+    model_premium_low=395000,
+    model_premium_high=485000,
+    model_recommendation="approve",
+    key_factors=[
+        {"label": "Single-walled tank exposure", "match": ["single-walled", "steel", "30%", "corrosion", "Subtitle I"], "weight": 1},
+        {"label": "Cathodic protection upgrade", "match": ["cathodic", "CP", "upgrade", "8 sites", "anode"], "weight": 1},
+        {"label": "Per-tank aggregate analysis", "match": ["per-tank", "aggregate", "$50K", "$35K", "Old Republic"], "weight": 1},
+        {"label": "Trust fund coordination", "match": ["trust fund", "TX", "OK", "$25K", "exhaustion", "deductible"], "weight": 1},
+        {"label": "Hail mitigation / canopy", "match": ["hail", "canopy", "sump", "dispenser", "rating"], "weight": 1},
+        {"label": "Phase-out timeline / CapEx", "match": ["phase-out", "2030", "CapEx", "removal", "replacement"], "weight": 1},
+        {"label": "NM no-fund exposure", "match": ["NM", "New Mexico", "no fund", "$50K deductible"], "weight": 1},
+        {"label": "Path forward", "match": ["Crum", "Forster", "bind", "subject to", "approve"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Single-walled steel tank exposure (30%)",
+        "Cathodic protection upgrade backlog (8 sites)",
+        "Old Republic per-tank aggregate reduction",
+        "NM no-trust-fund deductible exposure",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-038",
+    slug="public-entity-mid-size-city",
+    title="Public entity — mid-size city of 180K, post-police-misconduct settlement",
+    summary="Mid-size TX city. 2025 $4.8M police-misconduct settlement + open §1983 cases. Renewal of public-entity tower stressed.",
+    scenario="""Renewal for a Texas city's public entity insurance program.
+
+Profile:
+- Population: 180,000
+- Operating budget: $385M
+- Employees: 1,840 (incl. 320 police, 240 fire/EMS)
+- Vehicle fleet: 480 (police + fire + public works + admin)
+- Property TIV: $620M (city hall, treatment plants, public works, parks/rec, museums, golf course)
+
+Coverage requested:
+- Public entity GL $5M / $10M (incl. law-enforcement liability)
+- §1983 / civil rights coverage $5M
+- Property all-risks $620M with $50K AOP / 2% wind/hail
+- Auto liability $5M
+- EPL $3M / fiduciary $3M / crime $3M
+- Cyber $10M
+- Excess umbrella $50M
+- Public officials liability $5M
+
+Loss history (5 yr):
+- 2025: $4.8M settlement on a police excessive-force case (qualified immunity denied at MSJ, settled pre-trial); jury trial would have created precedent risk
+- 2024: $1.2M auto / police vehicle MVA, third-party fatality
+- 2023: $580K property (water-main rupture at treatment plant, BI included)
+- 2022: $245K EPL settlement (Title VII)
+- Open: 3 §1983 cases (1 jail-medical-care, 1 police pursuit, 1 prosecutor-related), aggregate demands $14M
+- Open: 1 EPL class (overtime/FLSA collective on PD), 28 plaintiffs, settlement zone $1.5M-$3.5M
+
+Coverage history:
+- Tower: $50M excess of $5M primary GL + LEL
+- 2025 expiring premium: $1.85M total program
+
+Renewal indications:
+- IMA Public Entity / IPRM (pool reference: TML Risk Pool): $2.45M (+32%), keeps $50M tower
+- Munich Re Public Entity: $2.65M, increases retention from $250K to $500K
+- Argo Public Entity: $2.85M (+54%), excludes "punitive damages and §1983 plaintiff attorneys' fee shifting"
+- AIG Public Entity: $2.92M, broad coverage, no exclusions
+- Old Republic: declines new business
+
+Other:
+- TX Tort Claims Act (TX CPRC § 101) limits municipal liability except where waived
+- §1983 federal claims are not subject to TTCA caps; LEL response is the structural protection
+- New body-worn camera deployment Q3 2024 (180 cameras, all sworn officers)
+- Use-of-force review board established Q1 2025 with civilian member
+- Police accreditation status: TCLEOSE compliant, working toward IACLEA""",
+    primary_specialty="public-entity",
+    additional_specialties=["complex-casualty"],
+    difficulty=5,
+    time_limit_minutes=55,
+    packet={
+        "City population": "180K (TX)",
+        "Budget / employees / fleet": "$385M / 1,840 / 480",
+        "Property TIV": "$620M",
+        "5-yr losses": "$4.8M LEL + $1.2M auto + $580K property + $245K EPL",
+        "Open §1983": "3 cases, $14M aggregate demand",
+        "Open EPL collective": "28 plaintiffs, $1.5M-$3.5M zone",
+        "Indications": "IMA/TML $2.45M · Munich Re $2.65M ($500K retention) · Argo $2.85M (§1983 fee excl) · AIG $2.92M · Old Rep declined",
+        "BWC deployed": "Q3 2024 (180 cameras)",
+    },
+    red_flag_options=[
+        "Argo §1983 fee-shifting exclusion",
+        "Open §1983 cases ($14M demands)",
+        "FLSA collective on PD",
+        "Body-worn camera retroactive applicability",
+        "Police pursuit / use-of-force pattern",
+        "Munich Re retention increase",
+        "Old Republic decline",
+        "Jail medical-care claim",
+    ],
+    model_rationale="""This is a **quote with modifications** — IMA/TML at $2.45M is the right structural answer for a TX city. Argo's §1983 attorney-fee-shifting exclusion is a litigation trap; AIG's broader form is overpriced relative to risk-controls.
+
+**The Argo exclusion is unacceptable.** §1983 attorney-fee shifting under 42 U.S.C. § 1988 is the single largest cost driver in civil rights litigation. A successful §1983 plaintiff routinely recovers $150K-$500K+ in attorneys' fees on top of damages. **Excluding fee-shifting in §1983 coverage makes the policy structurally non-responsive** to the dominant loss element. Reject Argo.
+
+**TX Tort Claims Act + §1983 framework.**
+- State-law claims: TTCA caps at $250K/person, $500K/occurrence in most contexts
+- §1983 federal claims: no caps, no qualified immunity at the entity level (only for individual officers, and even there, qualified immunity is increasingly restricted)
+- **The structural protection for the city is LEL with §1983-explicit coverage that responds to attorney-fee shifting + damages + defense costs**
+
+**Open §1983 case analysis.** 3 cases, $14M aggregate demand:
+- Jail medical care: typically settles $300K-$1.2M depending on outcome severity
+- Police pursuit: settles $500K-$2.5M depending on third-party harm
+- Prosecutor-related: prosecutorial immunity is strong; nuisance settlement $100K-$300K
+**Expected total: $900K-$4M.** Well within tower but burns through primary $5M into excess on a bad combination.
+
+**FLSA collective (PD).** 28 plaintiffs at $1.5M-$3.5M settlement zone is foreseeable for police overtime cases (off-the-clock pre-shift activities, K-9 handler time, court appearance compensation). EPL response should cover.
+
+**Body-worn camera retroactivity.** BWC deployment Q3 2024. **BWC footage is double-edged:**
+- Good footage = defense gold (qualified immunity, settlement leverage)
+- Bad footage = settlement compulsion (the 2025 $4.8M was a no-footage case; with footage, often resolves quicker but sometimes at higher value)
+
+**Use-of-force review board with civilian member.** Strong defense indicator. Documents proactive governance + community engagement; juries weight this favorably.
+
+**Munich Re retention increase.** $250K → $500K is the wrong direction for a city with FY budget $385M and existing tower already engaged. Reject.
+
+**Pricing band.** $2.35M-$2.95M defensible. IMA/TML at $2.45M is at low-mid band with appropriate municipal-focused expertise.
+
+**Recommendation.** Bind IMA/TML at $2.45M subject to:
+1. Reject §1983 fee-shifting exclusions in any form.
+2. Use-of-force review board scope expanded to include §1983 case dispositions.
+3. BWC footage retention + chain-of-custody protocol confirmed.
+4. FLSA-collective defense panel pre-selected with carrier.
+5. Quarterly §1983 case review.
+6. Annual police-training documentation audit (defensive tactics, de-escalation, vehicle pursuit).""",
+    model_premium_low=2350000,
+    model_premium_high=2950000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "§1983 attorney-fee shifting", "match": ["§1983", "1983", "fee shifting", "§ 1988", "attorneys fees", "civil rights"], "weight": 1},
+        {"label": "TX Tort Claims Act analysis", "match": ["TTCA", "Tort Claims Act", "§ 101", "CPRC", "caps"], "weight": 1},
+        {"label": "Argo exclusion analysis", "match": ["Argo", "exclusion", "fee shifting", "trap", "non-responsive"], "weight": 1},
+        {"label": "Qualified immunity framework", "match": ["qualified immunity", "QI", "MSJ", "officers"], "weight": 1},
+        {"label": "Body-worn camera framework", "match": ["BWC", "body-worn", "camera", "footage", "retention"], "weight": 1},
+        {"label": "FLSA collective on PD", "match": ["FLSA", "collective", "overtime", "off-the-clock", "K-9"], "weight": 1},
+        {"label": "Use-of-force review board", "match": ["use of force", "review board", "civilian", "governance"], "weight": 1},
+        {"label": "Path forward", "match": ["IMA", "TML", "bind", "subject to"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Argo §1983 fee-shifting exclusion",
+        "Open §1983 cases ($14M demands)",
+        "FLSA collective on PD",
+        "Munich Re retention increase",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-039",
+    slug="public-entity-school-district",
+    title="Public entity — large suburban school district, AB/SAM exposure",
+    summary="Suburban school district, 38K students, recent abuse/molestation claims + Title IX exposure. Restructure or stack SAM-specific tower?",
+    scenario="""Renewal for a large suburban TX school district.
+
+Profile:
+- 38,000 students across 56 campuses
+- 4,800 employees (teachers + admin + auxiliary)
+- Budget: $440M
+- Property TIV: $1.8B (schools, transportation, athletic, admin)
+
+Coverage requested:
+- Educator legal liability + GL $5M / $10M
+- Sexual abuse & molestation (SAM) $5M / $10M
+- Title IX defense + indemnity $3M
+- Property all-risks $1.8B (with hail/wind sublimits)
+- Auto $5M (320 buses + 180 admin/staff vehicles)
+- EPL $3M, cyber $5M
+- Excess $50M tower
+- Crime / fidelity $5M
+
+Loss history (5 yr):
+- 4 SAM claims:
+  * 2024: paid $1.8M (paraprofessional, multiple plaintiffs, alleged conduct 2018-2021)
+  * 2023: paid $740K (coach, single plaintiff, alleged 2019)
+  * 2022: settled $310K (volunteer, single plaintiff)
+  * 2021: dismissed
+- 3 Title IX matters (2 OCR resolved, 1 federal court — settled $385K)
+- 12 EPL claims ($1.4M aggregate)
+- 28 auto claims ($1.8M aggregate)
+- 1 hail event 2024 ($14M property)
+
+Renewal indications:
+- IMA / TASB Risk Management Fund (reference pool): $4.2M total, retains $250K aggregate per SAM occurrence
+- Munich Re Public Entity: $4.65M, SAM sublimit $3M per claim
+- BHSI Public Entity: $4.85M, broadest coverage, no SAM sublimit reduction
+- Liberty Public Entity: $4.45M, requires SAM-prevention program documentation + audit
+- AXIS: declines SAM coverage as part of program; would write balance only
+
+Recent context:
+- TX SB 1071 (2025) eliminated SAM statute of limitations for childhood sexual abuse; retroactive look-back window for civil claims
+- TX Education Code § 22 background-check requirements tightened 2023; pre-2023 educator vetting variable
+- Title IX 2024 reg amendments (Biden admin) caused operational complexity; Trump admin signaling potential rollback in 2026
+- District deployed mandatory Praesidium-style child-protection training Q4 2024 (all staff)
+- DOJ informal inquiry on Title IX response practices (Q1 2026)""",
+    primary_specialty="public-entity",
+    additional_specialties=["complex-casualty"],
+    difficulty=5,
+    time_limit_minutes=55,
+    packet={
+        "Students / campuses / employees": "38K / 56 / 4,800",
+        "Budget / TIV": "$440M / $1.8B",
+        "5-yr SAM losses": "$2.85M (3 paid claims)",
+        "TX SB 1071": "Eliminated SAM SOL — retroactive look-back",
+        "Indications": "IMA/TASB $4.2M · Liberty $4.45M (program req) · Munich Re $4.65M ($3M SAM sub) · BHSI $4.85M (full SAM) · AXIS partial",
+        "Training": "Praesidium-style Q4 2024",
+        "DOJ inquiry": "Title IX response practices",
+    },
+    red_flag_options=[
+        "TX SB 1071 SAM SOL elimination + retroactive",
+        "Pre-2023 educator vetting variability",
+        "DOJ Title IX inquiry",
+        "AXIS SAM decline",
+        "Munich Re SAM sublimit reduction",
+        "Hail / property catastrophic exposure",
+        "Background-check tail on existing employees",
+        "Title IX regulatory volatility",
+    ],
+    model_rationale="""This is a **needs more info / restructure** — TX SB 1071 (SOL elimination + retroactive look-back) materially changes the SAM exposure profile. The renewal needs a different structure than year-over-year continuation.
+
+**TX SB 1071 impact analysis.** Elimination of SOL for childhood sexual abuse + retroactive look-back means:
+- Claims that were previously time-barred can now be filed
+- Historical exposure from decades ago is now actionable
+- Discovery rule + look-back provisions vary; consult panel counsel for specifics
+**This is a 5-10 year claim wave** for any institution with historical youth exposure. School districts, churches, scouting orgs, sports organizations — all affected.
+
+**Reserve estimate.** With 4 SAM claims paid in 5 years pre-SB-1071, the post-SB-1071 frequency could 3-5x. **Conservative reserve: $5M-$15M aggregate exposure over next 5 years** for historical claims, plus ongoing prospective exposure.
+
+**Munich Re's $3M SAM sublimit per claim is the wrong direction.** SAM claim values have escalated (Boy Scouts bankruptcy plan averaged $4.3M per claim; Catholic Church dioceses similar trajectory). **Reject.**
+
+**Liberty's program-documentation requirement** is the right operational fix:
+- Praesidium-style training already deployed Q4 2024 = good
+- Mandatory training compliance tracking
+- Reporting protocol (mandatory reporter training + clear escalation)
+- Two-deep adult supervision in all youth-contact scenarios
+- Camera coverage of locker rooms / changing facilities boundary zones
+- Background-check re-run on all currently employed staff regardless of prior vintage
+
+**BHSI broadest coverage** is the safest answer for SAM-specific exposure but premium reflects it.
+
+**Title IX regulatory volatility.** 2024 Biden-era regulations vs. potential 2026 Trump rollback creates operational uncertainty:
+- Confirm coverage form responds regardless of regulatory regime
+- Defense panel familiar with both 2020 and 2024 frameworks
+- DOJ inquiry needs to be confirmed as covered
+
+**DOJ Title IX inquiry.** Informal inquiry typically resolves with corrective action plan; formal investigation can lead to compliance review + financial impact. **Confirm coverage responds to inquiry costs + remediation activities.**
+
+**Restructure recommendation.**
+1. **Base program with Liberty** at $4.45M subject to documented SAM-prevention program — operationally sound.
+2. **Stack SAM-specific excess** $10M xs $10M from Lloyd's SAM facility (Crum & Forster + others); target $385K-$485K.
+3. **Title IX-specific defense pool retention** confirmed across primary + excess.
+4. **Crisis-comm + post-claim victim-services** included or stacked separately ($85K-$120K).
+
+**Total restructured program: $4.95M-$5.10M** for materially better SAM coverage than the standalone Liberty $4.45M.
+
+**Pricing band.** $4.85M-$5.45M for restructured program is defensible.
+
+**Recommendation.** Restructure:
+1. Liberty base program $4.45M subject to:
+   - SAM-prevention program audit within 90 days
+   - Background-check re-run on all currently employed staff within 18 months
+   - Praesidium training compliance dashboard delivered quarterly
+2. Stack $10M xs $10M SAM-specific from Lloyd's (~$425K target)
+3. Crisis-comm / victim-services rider ~$95K
+4. DOJ Title IX inquiry response coordinated with carrier panel counsel
+5. Annual board-level training documented""",
+    model_premium_low=4850000,
+    model_premium_high=5450000,
+    model_recommendation="needs_more_info",
+    key_factors=[
+        {"label": "TX SB 1071 SOL elimination", "match": ["SB 1071", "SOL", "statute of limitations", "look-back", "retroactive"], "weight": 1},
+        {"label": "SAM claim severity / Boy Scouts precedent", "match": ["SAM", "$4.3M", "Boy Scouts", "diocese", "Catholic", "average"], "weight": 1},
+        {"label": "Munich Re sublimit rejection", "match": ["Munich Re", "$3M", "SAM sublimit", "reduction"], "weight": 1},
+        {"label": "Praesidium / training program", "match": ["Praesidium", "training", "two-deep", "mandatory reporter", "escalation"], "weight": 1},
+        {"label": "Title IX regulatory volatility", "match": ["Title IX", "2024", "regulatory", "rollback", "Biden", "Trump"], "weight": 1},
+        {"label": "DOJ Title IX inquiry", "match": ["DOJ", "Title IX inquiry", "investigation", "compliance review"], "weight": 1},
+        {"label": "Restructure / SAM-specific stacking", "match": ["restructure", "SAM-specific", "stack", "Lloyd", "$10M xs $10M"], "weight": 1},
+        {"label": "Background-check re-run", "match": ["background check", "re-run", "pre-2023", "currently employed"], "weight": 1},
+    ],
+    model_red_flags=[
+        "TX SB 1071 SAM SOL elimination + retroactive",
+        "Pre-2023 educator vetting variability",
+        "DOJ Title IX inquiry",
+        "Munich Re SAM sublimit reduction",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-040",
+    slug="hospitality-luxury-resort-coastal",
+    title="Hospitality — luxury coastal resort, 480 rooms, post-hurricane renewal",
+    summary="Luxury beachfront resort, 480 rooms, hit by 2024 hurricane (Cat 2). Property + BI + GL renewal in hardening CAT market.",
+    scenario="""Renewal for a luxury beachfront resort.
+
+Property:
+- 480 rooms across 3 buildings (8-12 stories)
+- Beachfront on Florida Gulf Coast
+- Built 2008-2011, mix of reinforced concrete + impact-rated glass
+- TIV $385M (buildings + contents + 4 restaurants + spa + golf)
+- COB: limited (no commercial structure protection beyond on-site retail)
+
+Operations:
+- ADR: $620, RevPAR: $480
+- Annual revenue: $182M (room + F&B + golf + spa)
+- Employees: 980 (year-round) + 320 (seasonal)
+- Occupancy: 79% YTD, was 81% pre-storm
+
+2024 hurricane:
+- Cat 2 direct hit
+- Property damage: roof on 2 of 3 buildings + balcony/glazing on Gulf-facing rooms
+- Total loss: $42M (after $1.5M deductible)
+- BI: 4-month total closure + 8-month partial; $28M BI paid
+- Insured had named-storm deductible 5% per location
+
+Coverage requested:
+- Property all-risks $385M, with named-storm sublimit $250M
+- BI $54M
+- General liability $5M / $10M
+- Liquor liability $5M
+- EPL $3M
+- Cyber $5M
+- Excess $50M
+- Inland marine on art collection $8M
+
+Renewal indications:
+- Lloyd's lead $200M property layer: $4.85M, named-storm deductible 10% (was 5%)
+- Munich Re lead alternative: $5.45M, keeps 5% named-storm deductible, but reduces BI to $40M
+- AIG/Liberty property panel: $5.62M with parametric wind trigger overlay ($25M parametric layer included)
+- AXIS Hospitality: $4.95M lead, requires hurricane preparedness audit + roof-retrofit timeline
+
+GL/EPL/Cyber separately:
+- Berkshire Hospitality: $1.2M GL+Liquor+EPL package
+- Coalition cyber: $185K
+
+Other:
+- 2025 hurricane season prediction (NOAA): above-normal activity 75% probability
+- Resort completed roof retrofit on 2 buildings post-2024 storm using Class 4 impact-rated metal
+- Third building roof retrofit scheduled Q2 2026 ($8.4M)
+- Property generator capacity 100% of guest-area + 60% of back-of-house""",
+    primary_specialty="hospitality",
+    additional_specialties=["cat-wind"],
+    difficulty=4,
+    time_limit_minutes=55,
+    packet={
+        "Property": "480 rooms, $385M TIV, Gulf Coast",
+        "2024 storm losses": "$42M property + $28M BI",
+        "ADR / revenue": "$620 / $182M",
+        "Property indications lead": "Lloyd's $4.85M (10% NS deduct) · AXIS $4.95M (audit req) · Munich Re $5.45M ($40M BI) · AIG/Liberty $5.62M (parametric)",
+        "Hurricane forecast 2025": "Above-normal 75%",
+        "Roof retrofit": "2 of 3 done; 3rd Q2 2026",
+        "Generator coverage": "100% guest / 60% back-of-house",
+    },
+    red_flag_options=[
+        "Above-normal hurricane forecast",
+        "Lloyd's named-storm deductible increase (5%→10%)",
+        "Munich Re BI reduction",
+        "Third building roof retrofit pending",
+        "Back-of-house generator gap (40%)",
+        "FL Gulf Coast Cat exposure",
+        "Recent prior CAT loss",
+        "Art collection inland marine",
+    ],
+    model_rationale="""This is a **quote with modifications** — AIG/Liberty property panel at $5.62M with parametric wind trigger overlay is the right structural answer for a recurring Cat-exposed resort, despite being the highest-priced.
+
+**The parametric wind overlay changes the structure.** $25M parametric layer included means the resort gets paid immediately on a defined wind-speed trigger (typically 90-knot landfall threshold) without claim-adjustment delay. This addresses the resort's biggest non-property-damage risk: **BI from delayed adjustment + slow re-opening that costs reputation/booking velocity**.
+
+**Lloyd's 10% named-storm deductible is structurally OK but cashflow-painful.** On $385M TIV, 10% NS deductible = $38.5M out-of-pocket per occurrence. After the 2024 $42M property loss with $1.5M deductible, this would shift the next storm to a $38.5M-against-the-balance-sheet event before insurance responds. **Confirm the resort has $38M+ in liquidity or a deductible buy-down market.**
+
+**Munich Re BI reduction is wrong.** $54M to $40M BI on a resort with $182M annual revenue + post-storm-reopening risk profile = underinsurance. The 2024 storm BI was $28M; another storm at similar severity could easily exceed $40M if reopening drags due to broader area damage / labor shortages / supply chains.
+
+**AXIS hurricane preparedness audit + roof retrofit timeline** is good operational underwriting but not transformational vs the parametric overlay.
+
+**Roof retrofit progress.** 2 of 3 buildings completed with Class 4 impact-rated metal post-2024 storm = excellent. Third building scheduled Q2 2026 = before next peak season. **Make Q2 2026 completion a binding subjectivity.**
+
+**Generator coverage gap.** 100% guest-area + 60% back-of-house. **Back-of-house gap is the operational vulnerability** — without full backup, post-storm the resort may have to evacuate guests due to lack of laundry, food prep, refrigeration. Recommend 100% back-of-house generator coverage as Year 2 CapEx item.
+
+**Hurricane forecast.** 2025 above-normal 75% probability per NOAA + Colorado State + WeatherCo concurrent forecasts. **Trim exposure where possible**: pre-season inventory positioning, contingency-staffing plans, alternate-asset access (sister-property MOU for guest relocation).
+
+**Pricing band.** $4.85M-$5.85M for property lead defensible. AIG/Liberty $5.62M at upper-mid band but with parametric overlay = best structural value.
+
+**Recommendation.** Bind AIG/Liberty property panel at $5.62M (incl parametric overlay) + Berkshire GL/Liquor/EPL package $1.2M + Coalition cyber $185K = **~$7.0M total program**. Subjectivities:
+1. Third building roof retrofit completed by Q2 2026 (binding).
+2. Back-of-house generator coverage expansion plan documented; target 90% by Q2 2027.
+3. Hurricane preparedness audit + corrective action plan within 60 days.
+4. Confirmed parametric trigger criteria + payout schedule.
+5. Pre-season annual loss-control walkthrough.
+6. Re-rate at audit if 2025 season produces a >Cat 1 direct hit.""",
+    model_premium_low=6800000,
+    model_premium_high=7400000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "Parametric wind overlay", "match": ["parametric", "wind trigger", "90-knot", "landfall", "immediate payout"], "weight": 1},
+        {"label": "Named-storm deductible analysis", "match": ["named-storm", "5%", "10%", "$38.5M", "deductible", "buy-down"], "weight": 1},
+        {"label": "BI adequacy", "match": ["BI", "$54M", "$40M", "Munich Re", "reduction", "underinsurance"], "weight": 1},
+        {"label": "Roof retrofit / Class 4", "match": ["roof retrofit", "Class 4", "impact-rated", "retrofit", "Q2 2026"], "weight": 1},
+        {"label": "Back-of-house generator gap", "match": ["generator", "back-of-house", "100%", "60%", "evacuation"], "weight": 1},
+        {"label": "Hurricane forecast 2025", "match": ["NOAA", "Colorado State", "above-normal", "forecast", "75%"], "weight": 1},
+        {"label": "Pricing band", "match": ["$4.85", "$5.62", "$5.85", "$7.0M", "band"], "weight": 1},
+        {"label": "Path forward", "match": ["AIG/Liberty", "bind", "subject to", "approve"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Above-normal hurricane forecast",
+        "Lloyd's named-storm deductible increase (5%→10%)",
+        "Munich Re BI reduction",
+        "Back-of-house generator gap (40%)",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-041",
+    slug="hospitality-quick-service-franchise-multi",
+    title="Hospitality — multi-brand QSR franchisee, 142 stores, slip/fall pattern",
+    summary="Multi-concept QSR franchisee (4 brands, 142 stores). Slip-fall claim frequency up 28%. Renew package or restructure?",
+    scenario="""Renewal for a multi-brand QSR franchisee.
+
+Operations:
+- 142 stores across 8 states (TX, OK, AR, LA, MS, AL, TN, KY)
+- 4 brands: 68 burger, 38 pizza, 24 chicken, 12 sandwich
+- Revenue: $310M
+- Employees: 4,800 (mostly hourly)
+- Customer transactions: ~28M/yr
+
+Coverage requested:
+- GL $1M / $2M / $10M agg
+- Property all-risks $185M
+- Auto $1M (delivery only at 22 stores)
+- Liquor $1M (12 stores serve beer)
+- EPL $2M
+- Cyber $3M
+- Excess $25M
+- Crime $2M
+
+Loss history (5 yr):
+- Slip/fall + GL claims:
+  * 2025: 84 claims, $2.4M incurred ($28.5K avg)
+  * 2024: 72 claims, $1.8M
+  * 2023: 58 claims, $1.4M
+  * Frequency trend: +45% over 3 years
+- 14 EPL claims ($420K aggregate, mostly wage/hour single-plaintiff)
+- 4 minor property claims ($185K)
+- 8 auto claims ($380K, including 1 delivery fatality $185K)
+
+Renewal indications:
+- Berkley Restaurant: $1.85M (+22%), keeps current structure, requires slip/fall corrective program
+- Hospitality Mutual: $1.72M (+13%), no specific requirements
+- Markel Hospitality: $1.95M (+28%), includes claim-defense panel upgrade
+- Liberty Hospitality: $1.78M, but requires SIR increase from $5K to $25K per claim
+- ARC: declines new business with 84+ claim count
+
+Slip/fall analysis:
+- 64% of claims in 2025 at 4 specific high-volume stores (avg 380K transactions/yr each)
+- Common cause: drink spills on hard-surface tile, customer-served beverage stations
+- Insurance claim-defense rate: 68% defended successfully or settled <$10K
+- Top-end claims: $850K (catastrophic hip injury, settled), $620K (head injury, settled)""",
+    primary_specialty="hospitality",
+    additional_specialties=["complex-casualty"],
+    difficulty=3,
+    time_limit_minutes=40,
+    packet={
+        "Stores / brands / states": "142 / 4 / 8",
+        "Revenue / employees": "$310M / 4,800",
+        "5-yr GL trend": "84 claims 2025 (+45% vs 2023)",
+        "Concentration": "64% of 2025 claims at 4 stores",
+        "Indications": "Hospitality Mutual $1.72M · Liberty $1.78M ($25K SIR) · Berkley $1.85M (slip/fall program) · Markel $1.95M · ARC declined",
+    },
+    red_flag_options=[
+        "Slip/fall frequency trend (+45%)",
+        "4-store concentration (64%)",
+        "Liberty SIR escalation",
+        "Customer-served beverage stations",
+        "Hard-surface tile flooring",
+        "Delivery program expansion (22 stores)",
+        "Catastrophic claim severity",
+        "EPL wage/hour pattern",
+    ],
+    model_rationale="""This is a **quote with modifications** — Berkley Restaurant at $1.85M with the slip/fall corrective program requirement is the right answer. The 4-store concentration is the actionable lever.
+
+**Frequency analysis dominates.** +45% slip/fall claim growth over 3 years is the signal. 64% concentration at 4 specific stores means **risk is operational, not systemic** — it's solvable with focused intervention rather than systemic policy changes.
+
+**The 4-store corrective program.** Standard slip/fall risk-control for QSR:
+- Floor surface assessment (coefficient of friction testing — ANSI A137.1)
+- Anti-slip flooring treatment or replacement ($28K-$48K per store)
+- Beverage-station relocation away from main traffic flow
+- Wet-floor signage protocol + frequency
+- Spill-response training + station auditing (15-minute check intervals)
+- Employee footwear: slip-resistant required + cost-shared
+**Expected impact**: 40-60% reduction in concentration stores; +12% claim revenue savings annually.
+
+**Liberty's $25K SIR escalation analysis.** Going from $5K to $25K per claim:
+- On 84 claims/yr, that's an additional $1.68M in retained losses (at full hit)
+- In reality, 70%+ of claims close <$25K, so retained exposure is $1.2M-$1.4M
+- Premium savings vs Berkley ($1.78M vs $1.85M = $70K) does not offset retained loss
+- **Reject Liberty.**
+
+**Markel's claim-defense panel upgrade** is operationally helpful but $100K-$200K premium spread is steep for the value.
+
+**EPL pattern.** Single-plaintiff wage/hour is the dominant claim type. Recommend:
+- Off-the-clock work audit
+- Tip-credit compliance (where applicable — 24 chicken stores)
+- Manager-bonus structure review for incentive-to-clock-out-early dynamics
+- FLSA compliance training cadence
+
+**Catastrophic claim severity.** $850K + $620K in 2 cases — these establish the severity profile and don't yet trigger excess tower aggressively. **Confirm excess tower aggregate adequacy and that catastrophic-claim defense panel is pre-selected.**
+
+**Auto delivery.** 22 stores doing delivery. 1 fatality in claim history. **Standard delivery risk-control**:
+- Driver MVR + age limits (typically 21+)
+- Vehicle inspection cadence
+- Delivery-radius cap (5-7 miles typical)
+- Late-night restriction at high-risk markets
+
+**Pricing band.** $1.70M-$1.95M defensible. Berkley $1.85M at mid-band with structurally sound risk-control requirement.
+
+**Recommendation.** Bind Berkley Restaurant at $1.85M subject to:
+1. 4-store slip/fall corrective program implemented within 90 days; documented.
+2. ANSI A137.1 coefficient-of-friction testing at all hard-surface stores within 6 months.
+3. Beverage-station layout review at all 142 stores within 12 months.
+4. EPL: off-the-clock audit + FLSA training cadence confirmed.
+5. Delivery driver MVR + age + radius protocol confirmed.
+6. Quarterly slip/fall trend review through year 1.
+7. Re-rate at audit if frequency trend reverses (potential 5-8% credit).""",
+    model_premium_low=1700000,
+    model_premium_high=1950000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "Slip/fall frequency trend", "match": ["+45%", "frequency", "84 claims", "trend", "concentration"], "weight": 1},
+        {"label": "4-store concentration intervention", "match": ["4 stores", "64%", "concentration", "corrective"], "weight": 1},
+        {"label": "ANSI A137.1 / floor surface", "match": ["ANSI", "A137.1", "coefficient of friction", "tile", "anti-slip"], "weight": 1},
+        {"label": "SIR economics rejection", "match": ["SIR", "$5K", "$25K", "Liberty", "retained loss"], "weight": 1},
+        {"label": "EPL wage/hour pattern", "match": ["EPL", "wage/hour", "off-the-clock", "FLSA", "tip credit"], "weight": 1},
+        {"label": "Catastrophic claim severity", "match": ["$850K", "$620K", "catastrophic", "severity", "excess"], "weight": 1},
+        {"label": "Delivery auto risk", "match": ["delivery", "MVR", "radius", "fatality", "auto"], "weight": 1},
+        {"label": "Path forward", "match": ["Berkley", "bind", "subject to", "approve"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Slip/fall frequency trend (+45%)",
+        "4-store concentration (64%)",
+        "Liberty SIR escalation",
+        "Customer-served beverage stations",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-042",
+    slug="healthcare-pc-multi-specialty-physician-group",
+    title="Healthcare P&C — multi-specialty physician group, $480M revenue",
+    summary="Multi-specialty physician practice, 280 physicians, 14 locations. Recent malpractice tail event + GL claim. Renewal under stress.",
+    scenario="""Healthcare P&C renewal for a multi-specialty physician practice.
+
+Profile:
+- 280 employed physicians (32 specialties)
+- 14 ambulatory + 4 surgery centers
+- 480 RN + 1,200 support staff
+- Revenue: $480M
+
+Coverage requested:
+- Medical malpractice (claims-made, per-physician basis) $1M / $3M
+- General liability $2M / $5M
+- Property + BI $185M
+- Auto fleet $1M (60 admin/lease vehicles)
+- EPL $5M (employee count + wage exposure)
+- Cyber $25M (large PHI footprint)
+- Excess malpractice $25M / $50M (umbrella)
+
+Loss history (5 yr):
+- Medical malpractice:
+  * 2024 large claim: $4.8M paid (orthopedic surgeon, alleged retained foreign body + delayed treatment of post-op infection, septic outcome)
+  * 2023: 8 nuisance settlements ($1.4M aggregate)
+  * 2022: $1.2M paid (OB/Gyn, alleged failure to diagnose preeclampsia)
+- GL: 12 slip/falls in clinic spaces, $480K total
+- Property: $620K HVAC failure 2023
+- Cyber: 1 phishing event, no payment
+
+Renewal indications:
+- MagMutual Healthcare: $14.5M total program, requires patient-safety / RCA program documentation
+- The Doctors Company: $13.8M total program, claims-made with $1.5M / $3M base
+- ProAssurance Healthcare: $15.2M, includes risk-mitigation services
+- Coverys: $14.2M, but offers parallel telemedicine sublimit
+
+Other:
+- Telemedicine: 22% of patient visits 2025 (was 18% 2024); multi-state licensing reviewed
+- Open Praxis (state-board complaint) against orthopedic surgeon involved in 2024 claim
+- HIPAA Notice of Investigation Q4 2025 — practice cooperating
+- Standalone surgery center accreditation: AAAHC current at all 4 surgery centers
+- Practice acquired 38 physicians over 24 months (multiple M&A events) — credentialing tail""",
+    primary_specialty="healthcare",
+    additional_specialties=["cyber"],
+    difficulty=5,
+    time_limit_minutes=55,
+    packet={
+        "Physicians / specialties / locations": "280 / 32 / 14",
+        "Revenue": "$480M",
+        "5-yr malpractice paid": "$4.8M ortho + $1.4M nuisance + $1.2M OB/Gyn",
+        "Telemedicine": "22% visits 2025",
+        "M&A integration": "38 physicians / 24 mo",
+        "Indications": "Doctors Co $13.8M · Coverys $14.2M (tele sub) · MagMutual $14.5M (safety req) · ProAssurance $15.2M (services)",
+        "HIPAA": "Notice of Investigation Q4 2025",
+    },
+    red_flag_options=[
+        "$4.8M ortho malpractice claim",
+        "Open HIPAA NOI",
+        "M&A credentialing tail (38 physicians)",
+        "Telemedicine multi-state licensing",
+        "Open state-board complaint (ortho)",
+        "Multi-specialty severity diversity",
+        "Cyber large PHI footprint",
+        "Surgery-center catastrophic risk profile",
+    ],
+    model_rationale="""This is a **quote with modifications** — MagMutual Healthcare at $14.5M with patient-safety / RCA program documentation is the structurally correct answer. The post-$4.8M claim environment requires demonstrated safety culture, not just price competition.
+
+**Patient safety + RCA is the structural fix.** The 2024 ortho claim (retained foreign body + delayed infection treatment) is the kind of event that a robust patient-safety program could have prevented or mitigated. Standard components:
+- Post-op surgical site monitoring protocols
+- Time-out / count protocols (AORN-aligned for surgery centers)
+- Communication-failure analysis (the "delayed treatment" element)
+- Just-Culture framework for reporting + learning
+- Quarterly M&M (morbidity & mortality) review with documented action items
+**MagMutual's requirement = good operational investment.**
+
+**M&A credentialing tail.** 38 physicians over 24 months = 14% turnover. Credentialing tail is critical:
+- Each new physician carries their own claims history
+- Prior carrier reporting + reference checks
+- Privilege scope review
+- Re-credentialing cycle (typically every 2 years)
+**Confirm credentialing files for all 38 acquired physicians are current with carrier standards.**
+
+**Telemedicine multi-state.** 22% telemedicine + multi-state means:
+- Compact-state licensing review (IMLC compact = 39 states)
+- Standard of care variability across states
+- Prescribing limitations (telemedicine + controlled substances)
+- Patient-relationship establishment requirements
+**Coverys's parallel telemedicine sublimit is structurally interesting** but most policies now cover telemedicine within the base form. Verify.
+
+**HIPAA NOI.** Q4 2025 — typical resolution: 6-18 months. Possible outcomes range from no-action letter to corrective action plan + potential monetary penalty $50K-$500K typical for first-incident practice. **Confirm cyber + healthcare policies coordinate on HIPAA defense costs.**
+
+**Open ortho Praxis complaint.** State medical-board complaint can result in:
+- Letter of concern (no action)
+- Reprimand
+- Practice restrictions
+- License suspension/revocation
+**Confirm policy covers Praxis defense costs + reputation management. Most physicians-only policies do; group policies sometimes carve out.**
+
+**Surgery-center catastrophic profile.** $1M per-physician + $3M aggregate may be light for a surgery-center practice. Catastrophic claims at surgery centers (anesthesia adverse events, post-op deaths) routinely run $3M-$10M. **Recommend increasing base to $2M / $5M per-physician, with $25M / $50M excess tower above.**
+
+**Pricing band.** $13.5M-$15.5M defensible. MagMutual $14.5M at mid-band with strongest structural risk-control alignment.
+
+**Recommendation.** Bind MagMutual at $14.5M subject to:
+1. Patient-safety + RCA program documented within 90 days.
+2. M&A-acquired physician credentialing files refreshed within 6 months.
+3. Telemedicine multi-state licensing + standard-of-care matrix maintained.
+4. Surgery-center AORN time-out + counting protocols audited annually.
+5. HIPAA NOI response strategy coordinated with cyber + healthcare carrier panel counsel.
+6. Increase per-physician base to $2M / $5M.
+7. Stack $25M / $50M excess tower confirmed.
+8. Quarterly safety-trend review with carrier-provided risk consultant.""",
+    model_premium_low=13500000,
+    model_premium_high=15500000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "Patient-safety / RCA program", "match": ["patient safety", "RCA", "root cause", "M&M", "Just Culture"], "weight": 1},
+        {"label": "Surgical never-event prevention", "match": ["retained foreign body", "AORN", "time-out", "count", "surgical"], "weight": 1},
+        {"label": "M&A credentialing tail", "match": ["M&A", "credentialing", "38 physicians", "privileges", "re-credentialing"], "weight": 1},
+        {"label": "Telemedicine multi-state", "match": ["telemedicine", "IMLC", "compact", "standard of care", "multi-state"], "weight": 1},
+        {"label": "HIPAA NOI / cyber coordination", "match": ["HIPAA", "NOI", "Notice of Investigation", "OCR", "coordinate"], "weight": 1},
+        {"label": "Per-physician limit adequacy", "match": ["$1M", "$2M", "$3M", "$5M", "per-physician", "limit"], "weight": 1},
+        {"label": "Praxis / state-board defense", "match": ["Praxis", "state board", "complaint", "license", "reprimand"], "weight": 1},
+        {"label": "Path forward", "match": ["MagMutual", "bind", "subject to", "approve"], "weight": 1},
+    ],
+    model_red_flags=[
+        "$4.8M ortho malpractice claim",
+        "Open HIPAA NOI",
+        "M&A credentialing tail (38 physicians)",
+        "Surgery-center catastrophic risk profile",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-043",
+    slug="healthcare-pc-rural-hospital-system",
+    title="Healthcare P&C — 4-hospital rural system, post-tornado property loss",
+    summary="Rural 4-hospital system in TX/OK panhandle. 2024 tornado destroyed one critical-access hospital. Property + BI + general renewal stress.",
+    scenario="""Healthcare P&C renewal for a 4-hospital rural health system.
+
+System profile:
+- 4 hospitals: 1 critical-access (CAH) + 3 short-term acute care (PPS)
+- Total licensed beds: 280 (across 4 facilities)
+- Service area: TX/OK panhandle, 220-mile coverage radius
+- Annual revenue: $410M
+- Employees: 3,200
+
+2024 tornado:
+- F3 tornado direct hit on the critical-access hospital (24 licensed beds)
+- Hospital structure: ~85% destroyed
+- Property + contents: $48M paid
+- BI: $14M (closure ongoing — interim mobile facility deployed)
+- Patient evacuation completed safely; no patient injuries from tornado
+- Rebuild: $62M project, funded by insurance + USDA Rural Development loan + state grant
+- Target re-opening: Q4 2027
+
+Coverage requested:
+- Property all-risks $385M (incl. 3 standing hospitals + rebuild site)
+- Builder's risk on rebuild $62M (separate)
+- BI $52M
+- Healthcare professional liability $15M / $30M
+- Auto fleet $1M
+- EPL $3M
+- Cyber $15M
+- Excess $50M
+
+Loss history (5 yr aside from tornado):
+- 2 medical-malpractice paid claims, $1.8M aggregate (one ED-related, one labor & delivery)
+- 1 GL slip/fall at PPS hospital $185K
+- 1 HVAC failure $410K
+- 0 cyber events
+
+Renewal indications:
+- Liberty Healthcare: $4.85M total program, requires tornado-shelter compliance for all 4 hospitals
+- ProAssurance Healthcare: $5.12M, includes parallel professional + GL
+- AIG Healthcare: $5.45M, broadest property cover
+- Munich Re Healthcare: $4.62M, but excludes CAH rebuild perils until COD
+
+Specific issues:
+- CAH rebuild: meeting CMS Conditions of Participation for critical-access designation; design includes FEMA P-361 tornado-safe room
+- Other 3 hospitals: tornado-shelter compliance gap on 2 of them (storage rooms reinforced but not FEMA P-361)
+- Rural emergency-care designation pending for CAH transition under new CMS rule""",
+    primary_specialty="healthcare",
+    additional_specialties=["cat-wind"],
+    difficulty=4,
+    time_limit_minutes=50,
+    packet={
+        "System": "4 hospitals (1 CAH + 3 PPS), 280 beds",
+        "Service area": "TX/OK panhandle, 220 mi radius",
+        "2024 tornado": "$48M property + $14M BI",
+        "Rebuild": "$62M ($14M state grant + $24M USDA loan + insurance)",
+        "Indications": "Munich Re $4.62M (CAH rebuild excl) · Liberty $4.85M (shelter req) · ProAssurance $5.12M · AIG $5.45M",
+        "Tornado shelter": "1 of 4 compliant; 3 with gaps",
+        "Rural ED designation": "Transition pending",
+    },
+    red_flag_options=[
+        "Tornado-shelter compliance gap (3 of 4 hospitals)",
+        "Munich Re CAH rebuild exclusion",
+        "Rural Health Center transition uncertainty",
+        "Tornado Alley exposure",
+        "Critical-access designation rebuild compliance",
+        "Workforce vulnerability post-tornado",
+        "Cyber + HIPAA post-event review",
+        "BI restoration trajectory",
+    ],
+    model_rationale="""This is a **quote with modifications** — Liberty Healthcare at $4.85M with the tornado-shelter compliance requirement is the right answer. Munich Re's CAH rebuild exclusion creates an unacceptable coverage gap during the rebuild period.
+
+**Munich Re CAH rebuild exclusion is a deal-breaker.** Excluding "CAH rebuild perils until COD" means the rebuild project (estimated 18+ months) is not covered for catastrophic perils. With Builder's Risk separately placed, this should normally be addressed, but **gap analysis is essential**:
+- Builder's Risk typically excludes occupational hazards once construction substantial completes
+- Liberty/Munich Re property excludes pre-COD periods
+- The "gap" period of testing/commissioning before formal COD is where coverage can fall through
+**Reject Munich Re unless they revise the exclusion language.**
+
+**Tornado-shelter compliance.** FEMA P-361 standard for hospital shelter spaces is the industry benchmark post-2014. Components:
+- 250 mph wind-rated walls
+- Limited-debris-impact-rated openings
+- Adequate occupancy capacity for staff + patients + visitors
+- Dedicated emergency lighting + ventilation
+- Communications redundancy
+**3 of 4 hospitals have gaps** — typically $180K-$320K per hospital to upgrade. Liberty's requirement is operationally sound and aligns with CMS Conditions of Participation post-2018 updates.
+
+**Critical-access designation rebuild compliance.** CMS CAH requirements:
+- 25 beds or less
+- 35-mile from another hospital (or 15-mile in mountainous terrain)
+- 24/7 emergency services
+- Average length of stay ≤ 96 hours
+**Rebuild design must align.** Recommend CMS-CAH compliance review by hospital-architecture specialist (HKS, HDR, or similar with CAH expertise).
+
+**Rural Emergency Hospital (REH) designation transition.** New CMS rule allows CAH conversion to REH (lower-intensity 24/7 emergency without inpatient beds). **Confirm strategic decision** between maintaining CAH (rebuild as licensed beds) vs. REH (no inpatient beds, focus on stabilization + transfer):
+- CAH: traditional rural hospital, can do inpatient stays
+- REH: ED + observation only, transfers to higher-level acute
+- Insurance implications differ (occupancy, liability profile, BI structure)
+
+**Healthcare malpractice profile.** 2 paid claims in 5 years on a 4-hospital system is exceptional (industry avg ~1 per 100 occupied beds). Maintain conservative limits.
+
+**BI restoration trajectory.** $14M paid on the destroyed CAH suggests 12-18 month BI exposure. **The 220-mile coverage radius means patients are being routed to the other 3 hospitals or further to urban centers** — confirm BI definition includes patient diversion impact on revenue at other facilities (some policies don't address this).
+
+**Pricing band.** $4.55M-$5.65M defensible. Liberty $4.85M at low-mid band with structural requirement.
+
+**Recommendation.** Bind Liberty Healthcare at $4.85M subject to:
+1. FEMA P-361 tornado-shelter compliance at 3 remaining hospitals within 18 months ($600K-$900K total project).
+2. CAH rebuild design CMS-compliance review by hospital-architecture specialist within 90 days.
+3. REH vs CAH strategic decision documented for the rebuild facility.
+4. Gap analysis between Builder's Risk and operational property coverage for the rebuild period.
+5. Patient-diversion BI definition confirmed.
+6. Annual tornado-preparedness drill at all 4 hospitals.
+7. Reject Munich Re exclusion language.""",
+    model_premium_low=4550000,
+    model_premium_high=5650000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "FEMA P-361 shelter compliance", "match": ["FEMA", "P-361", "shelter", "tornado", "250 mph"], "weight": 1},
+        {"label": "Munich Re CAH exclusion analysis", "match": ["Munich Re", "exclusion", "CAH", "rebuild", "gap"], "weight": 1},
+        {"label": "Builder's Risk / property gap", "match": ["Builder's Risk", "COD", "gap", "commissioning", "transition"], "weight": 1},
+        {"label": "CMS CAH requirements", "match": ["CMS", "CAH", "Critical Access", "25 beds", "Conditions of Participation"], "weight": 1},
+        {"label": "REH transition decision", "match": ["REH", "Rural Emergency", "designation", "transition", "inpatient"], "weight": 1},
+        {"label": "BI patient-diversion definition", "match": ["BI", "diversion", "transfer", "patient", "definition"], "weight": 1},
+        {"label": "Tornado Alley exposure", "match": ["Tornado Alley", "panhandle", "F3", "tornado", "frequency"], "weight": 1},
+        {"label": "Path forward", "match": ["Liberty", "bind", "subject to", "approve"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Tornado-shelter compliance gap (3 of 4 hospitals)",
+        "Munich Re CAH rebuild exclusion",
+        "Rural Health Center transition uncertainty",
+        "BI restoration trajectory",
+    ],
+))
+
+
+# === BATCH 6: Sample Programs + Jurisdictional + Program Mgmt (9 cases) =====
+
+cases.append(Case(
+    code="DOJO-2026-044",
+    slug="program-shared-layered-large-mfg",
+    title="Program design — shared & layered casualty tower for $1.8B mfg",
+    summary="Build the shared/layered casualty program for a $1.8B revenue mfg moving off a fronted captive. Tower size, layer cuts, leader selection.",
+    scenario="""You're designing the casualty insurance program for a $1.8B revenue industrial-products manufacturer transitioning off a fronted-captive structure to a traditional shared & layered program.
+
+Profile:
+- Revenue: $1.8B; 3,400 employees across 11 plants (US + Mexico + Brazil)
+- 14M FTE-hours/yr
+- Auto fleet: 280 (mix of company-issued exec, sales, plant ops)
+- Products: industrial equipment + components (B2B)
+- Loss history (5-yr ground-up, $250K SIR baseline):
+  * Year 1: $14.2M
+  * Year 2: $12.8M
+  * Year 3: $11.4M (1 large open: $4.2M product-liability case in MO)
+  * Year 4: $9.8M
+  * Year 5: $8.6M ytd (24 mo immature)
+
+Existing structure (fronted captive ending):
+- $250K SIR + $4.75M ceded to captive ($5M working layer)
+- Excess tower $200M
+- Captive funded $5M annually; $42M surplus accumulated; structure being unwound
+
+New structure design parameters:
+- Target SIR: $1M per occurrence
+- Target tower: $200M
+- Insurer-funded layers above $1M
+- No captive participation post-2027
+
+Lines covered (combined tower):
+- GL $1M / $2M / $5M product agg
+- Auto $1M
+- Foreign Casualty (Mexico + Brazil ops)
+- Excess workers comp ($1M xs $250K each accident)
+- Wrap-up integration for capital projects ($380M backlog of capex)
+
+Markets approached for $5M xs $1M working layer:
+- AIG Casualty: $4.2M, includes engineering/risk-control services
+- Liberty Mutual: $4.45M, broader form
+- Travelers: $4.6M, prefers $750K SIR (not the $1M target)
+- Chubb: $4.85M, broadest products coverage
+- Zurich: $3.95M, requires loss-control commitment (3 site visits/yr + dedicated rep)
+
+Higher layers:
+- $10M xs $5M: market panel pricing $1.2M-$1.5M
+- $25M xs $15M: $1.6M-$2.0M
+- $50M xs $40M: $1.8M-$2.4M
+- $100M xs $90M: $2.4M-$3.2M
+- Top $10M xs $190M: $385K-$520K""",
+    primary_specialty="programs",
+    additional_specialties=["complex-casualty", "workers-comp-ls"],
+    difficulty=5,
+    time_limit_minutes=60,
+    packet={
+        "Revenue / employees": "$1.8B / 3,400",
+        "Target SIR / tower": "$1M / $200M",
+        "5-yr ground-up loss avg": "~$11.4M",
+        "Captive unwind": "$42M surplus accumulated",
+        "Working layer market": "AIG $4.2M · Zurich $3.95M (LC req) · Liberty $4.45M · Chubb $4.85M",
+        "Higher layers": "$10M xs $5M $1.2-1.5M · all the way up to $200M tower",
+        "International": "Mexico + Brazil ops",
+    },
+    red_flag_options=[
+        "Captive unwind tail / claim handling continuity",
+        "Open $4.2M MO product-liability case",
+        "International exposure (MX/BR allocation)",
+        "Workforce comp excess attachment",
+        "Travelers $750K SIR push (vs $1M target)",
+        "Top-layer market thin",
+        "Wrap integration with $380M capex backlog",
+        "Auto severity in plant communities",
+    ],
+    model_rationale="""This is a **program design** — recommend a structured approach across layers with Zurich as lead working layer based on engineering services + price.
+
+**Tower structuring recommendation.**
+
+| Layer | Limit | Market | Indicated Premium |
+|---|---|---|---|
+| SIR | $250K → $1M | Self-insured | n/a |
+| Working | $5M xs $1M | Zurich | $3.95M |
+| 1st xs | $10M xs $5M | AIG | $1.35M |
+| 2nd xs | $25M xs $15M | Liberty + Chubb 50/50 quota | $1.80M |
+| 3rd xs | $50M xs $40M | Lloyd's lineslip | $2.10M |
+| 4th xs | $100M xs $90M | Munich Re panel | $2.80M |
+| Top | $10M xs $190M | Berkshire + AIG | $450K |
+| **Total** | **$200M tower** |  | **~$12.50M** |
+
+**Working layer selection: Zurich at $3.95M.** The engineering-service commitment (3 site visits/yr + dedicated rep) is worth real money on a $1.8B mfg with international ops. Loss-control engineering at this scale is typically $200K-$350K of value. Zurich's lower price + service is best structural value.
+
+**Travelers's $750K SIR push is wrong direction.** Going from $250K (captive era) to $1M is the right move; $750K is a half-step that doesn't generate the right rate credit. Reject.
+
+**Captive unwind considerations.**
+- $42M captive surplus: distribute to parent (TX domiciled captive should have clean tax treatment) or use as funding for SIR layer for first 24 months
+- Open claim run-off: confirm claims-handling transition to traditional TPA (Sedgwick, Crawford typical)
+- Reinsurance recoverables: confirm any reinsurance behind the captive is collected before unwind
+- IRS / state insurance dept notification of plan to unwind
+
+**Open MO product-liability case ($4.2M).** Confirm:
+- Was the underlying SIR satisfied before captive ceded?
+- Is the captive claim-funded for this specific event?
+- Defense panel transition plan
+- Reserve adequacy review
+
+**International allocation.**
+- Mexico ops: Foreign Casualty placement (ACE/Chubb International or AIG Global Specialty); typical $150K-$280K standalone
+- Brazil ops: complicated by Brazilian regulation requiring local-fronting; cost typically $80K-$140K
+- These typically sit outside the main US tower or as DIC/DIL coverage above local mandatory limits
+
+**Wrap-up integration.** $380M capex backlog means project-specific OCIP/CCIP placements may make economic sense. Recommend project-by-project analysis at the $50M+ project threshold; below that, fold into the master casualty tower with capex-specific endorsements.
+
+**Workers comp excess.** $1M xs $250K each accident is a common structure for self-insured WC; states require excess proof for self-insurance approval. Layer placement is standard market.
+
+**Risk-control investment.** Combined safety + loss-control program should target $400K-$650K/yr investment based on revenue scale. Components:
+- Plant safety audits (3-4 per plant per year)
+- Auto fleet telematics
+- Product safety review board (post-2024 product changes)
+- Workers comp claim management TPA
+
+**Recommendation.** Bind the structured tower as outlined; total ~$12.50M for $200M tower + appropriate SIR + foreign casualty add-ons. Subjectivities:
+1. Captive unwind plan filed with TX domiciliary regulator within 60 days.
+2. Open MO product case run-off plan confirmed.
+3. International placement (MX + BR) coordinated with master tower DIC/DIL.
+4. Loss-control engineering schedule (Zurich) confirmed for year 1.
+5. Wrap-up policy structure for capex backlog reviewed quarterly.
+6. Tower review at month 18 with claim-development data.""",
+    model_premium_low=12000000,
+    model_premium_high=13500000,
+    model_recommendation="approve",
+    key_factors=[
+        {"label": "Tower layer construction", "match": ["working layer", "1st xs", "2nd xs", "top layer", "$1M-$200M"], "weight": 1},
+        {"label": "Working layer selection", "match": ["Zurich", "working layer", "$3.95M", "engineering", "loss control"], "weight": 1},
+        {"label": "Captive unwind framework", "match": ["captive", "unwind", "$42M surplus", "TPA", "TX domicile"], "weight": 1},
+        {"label": "SIR transition", "match": ["SIR", "$250K", "$1M", "$750K", "transition"], "weight": 1},
+        {"label": "International / foreign casualty", "match": ["Mexico", "Brazil", "foreign casualty", "DIC", "DIL"], "weight": 1},
+        {"label": "Wrap-up / OCIP integration", "match": ["wrap-up", "OCIP", "CCIP", "capex", "project-specific"], "weight": 1},
+        {"label": "Workers comp excess", "match": ["WC", "workers comp", "excess", "$1M xs $250K", "self-insured"], "weight": 1},
+        {"label": "Loss-control investment", "match": ["loss control", "engineering", "site visits", "Zurich"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Open $4.2M MO product-liability case",
+        "Captive unwind tail / claim handling continuity",
+        "International exposure (MX/BR allocation)",
+        "Top-layer market thin",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-045",
+    slug="program-fronting-captive-construction",
+    title="Program design — fronted-captive structure for $620M GC",
+    summary="Stand up a fronted-captive WC + GL structure for a national general contractor. Captive domicile, fronting carrier, reinsurance attachment.",
+    scenario="""Design a fronted-captive insurance program for a $620M revenue national general contractor.
+
+Profile:
+- Revenue: $620M (commercial construction)
+- 1,200 employees + 4,200 1099/subcontract trade workers
+- Project mix: 40% public, 60% private
+- Geographic: 12 states, primarily Southwest + Mountain
+- Loss history (5-yr ground-up, $500K SIR equivalent):
+  * Working layer losses: $4.2M avg/yr
+  * 1 large excess hit: $8.4M (2023 multi-trade jobsite injury, paid by primary + excess)
+- Current structure: Guaranteed cost with $250K SIR (workers comp), $25K deductible (GL)
+
+Why fronted captive:
+- WC + GL combined $5.8M premium spend annually; CFO wants to recapture profit margin
+- Loss ratio is consistently below 60% — captive could be net-positive
+- 5-year captive-funded surplus projection: $8M-$14M
+
+Program parameters:
+- Fronted captive structure: Bermuda or Cayman domicile (or US 953(d) election)
+- Fronting carrier provides paper / regulatory compliance
+- Captive retains $500K-$2M working layer per line
+- Reinsurance market above captive retention to traditional excess tower
+- TPA: in-house claims dept supplemented by Sedgwick
+
+Indications:
+- Fronting carrier options:
+  * Old Republic Construction Fronting: 4-7% fronting fee + collateral
+  * Markel Specialty Fronting: 5-8% + collateral
+  * Crum & Forster Fronting: 6-9% + collateral
+  * Munich Re Fronting: 4-6% + tighter collateral
+- Captive management:
+  * Aon Captive (Bermuda): $185K/yr management + $50K formation
+  * Marsh Captive (Cayman): $165K/yr management + $45K formation
+  * Captive Resources: $145K/yr management + $40K formation
+- Reinsurance above captive ($5M xs $2M working): $1.4M-$1.8M panel pricing
+- Higher excess layers stay traditional ($50M tower total above captive)
+""",
+    primary_specialty="programs",
+    additional_specialties=["construction", "workers-comp-ls"],
+    difficulty=5,
+    time_limit_minutes=60,
+    packet={
+        "Revenue / employees": "$620M / 1,200 + 4,200 contract",
+        "Current spend": "$5.8M (WC + GL combined)",
+        "5-yr WC + GL working layer losses": "~$4.2M avg/yr",
+        "Captive parameters": "$500K-$2M retention per line; Bermuda/Cayman/953(d)",
+        "Fronting indications": "Munich Re 4-6% (tight collateral) · Old Republic 4-7% · Markel 5-8% · C&F 6-9%",
+        "Captive mgmt": "Captive Resources $145K · Marsh $165K · Aon $185K",
+    },
+    red_flag_options=[
+        "Captive collateral cash flow impact",
+        "Domicile regulatory complexity",
+        "Fronting carrier credit risk",
+        "Reinsurance attachment economics",
+        "1099/contractor exposure classification",
+        "Multi-state WC complexity",
+        "Captive surplus tax treatment",
+        "Open claim run-off if captive unwinds",
+    ],
+    model_rationale="""This is a **program design** — recommend Munich Re fronting + Captive Resources management + Bermuda domicile + $1M captive retention per line.
+
+**Structure recommendation.**
+
+| Component | Selection | Cost |
+|---|---|---|
+| Fronting carrier | Munich Re | 4-6% fronting fee |
+| Captive domicile | Bermuda | ~$45K formation + $25K/yr regulatory |
+| Captive management | Captive Resources | $145K/yr |
+| Captive retention | $1M xs $250K SIR | n/a |
+| Reinsurance (working layer above captive) | Panel (5x $1M) | $1.4M-$1.8M |
+| Excess tower above $5M | Traditional market $45M xs $5M | $1.5M-$2.0M |
+
+**Total program cost (year 1, estimate):**
+- Fronting fees: ~$290K (5% on $5.8M)
+- Captive formation + management: $190K year 1, ~$170K ongoing
+- Reinsurance: $1.6M
+- Excess tower: $1.75M
+- Self-insured retention funding: $4.2M-$5.0M (matched to loss-pick)
+- **Total cash + accrued: ~$8.2M year 1, vs $5.8M GC equivalent**
+
+**Wait — the math looks bad year 1.** That's by design. Captive structures **cost more in year 1** but recapture profit margin over time:
+- Year 1: -$2.4M vs status quo (captive funding + setup)
+- Year 2: -$1.6M
+- Year 3: -$0.8M (capital starting to build)
+- Year 4: +$0.4M (first surplus dividend possible)
+- Year 5: +$2.2M (mature captive)
+- **5-year cumulative: +$3M-$8M depending on loss experience**
+
+**Domicile analysis.**
+- **Bermuda**: tier-1 regulatory (BMA), most carriers respect it, slight US tax complexity
+- **Cayman**: also tier-1, slight regulatory advantage on certain reinsurance treaties
+- **US 953(d) election**: pays US tax as if domestic; simpler but loses some captive benefits
+**Bermuda is the standard for construction captives** — recommend.
+
+**Fronting carrier selection: Munich Re at 4-6%.**
+- Tier-1 financial strength (AA-rated)
+- Tight collateral requirement = higher LOC cost but lower fronting fee = net positive
+- Construction-specific experience (Munich Re Construction is a separate unit)
+
+**Captive Resources management** is the value selection. Captive management is largely a commodity service; CR's $145K vs Aon's $185K is meaningful and the service quality is comparable for a single-cell construction captive.
+
+**1099/contractor exposure.** 4,200 1099/contract trade workers is the major variable. **Standard contractor risk-control:**
+- AI/waiver verification on every subcontract
+- Master subcontractor agreement with carrier-approved language
+- Captive form must not have "employee-only" definitions excluding contractors
+- WC by-state compliance for any reclassified workers
+
+**Reinsurance attachment.** $5M xs $2M attachment is right for the loss profile (working losses ~$4.2M/yr means captive retains within retention most years). Top of $5M layer = $7M total per occurrence; below typical jobsite-severity.
+
+**Open claim handling continuity.** The 2023 $8.4M jobsite injury: confirm reserve adequacy and that defense panel transitions cleanly. Often a captive structure inherits the open file's reserve at transition.
+
+**Collateral analysis.** Munich Re's tighter collateral requirement = higher LOC. Standard LOC fee = SOFR + 175 bps = ~6.0% currently. On $5M of LOC, that's $300K/yr — material but standard.
+
+**Tax treatment.**
+- Captive premium deductibility: confirmed under IRC § 162 for arm's-length pricing
+- Captive income: taxable to the captive in domicile; surplus distribution to US parent is dividend-treated
+- 953(d) election makes captive a US taxpayer (simpler, less optimization)
+- **Recommend non-953(d) with annual surplus dividend strategy**
+
+**Recommendation.** Stand up the structure:
+1. Form Bermuda single-cell captive with Captive Resources within 90 days.
+2. Engage Munich Re as fronting carrier; finalize collateral at 110% of expected case reserves.
+3. Reinsurance panel: AXA XL lead $5M xs $2M + 3-4 follows at quota share.
+4. Excess tower $45M xs $5M placed with traditional market (Lloyd's, Berkshire).
+5. TPA: in-house + Sedgwick supplemental confirmed.
+6. AI/waiver verification audit at all 12 states for contractor exposure.
+7. Year-end captive surplus review with tax advisor.
+8. Re-evaluate in year 3 — possible captive expansion to other lines.""",
+    model_premium_low=7800000,
+    model_premium_high=8800000,
+    model_recommendation="approve",
+    key_factors=[
+        {"label": "Fronting carrier economics", "match": ["fronting", "Munich Re", "4-6%", "collateral", "LOC"], "weight": 1},
+        {"label": "Domicile selection", "match": ["Bermuda", "Cayman", "953(d)", "BMA", "domicile"], "weight": 1},
+        {"label": "Captive retention sizing", "match": ["$1M retention", "$2M", "working layer", "loss pick"], "weight": 1},
+        {"label": "Reinsurance attachment", "match": ["reinsurance", "$5M xs $2M", "attachment", "panel"], "weight": 1},
+        {"label": "5-year capital build", "match": ["5-year", "cumulative", "surplus", "dividend", "year 3", "year 5"], "weight": 1},
+        {"label": "1099/contractor risk", "match": ["1099", "contractor", "AI", "waiver", "subcontract"], "weight": 1},
+        {"label": "Tax / IRC § 162", "match": ["IRC", "§ 162", "deductibility", "tax", "dividend"], "weight": 1},
+        {"label": "Captive management selection", "match": ["Captive Resources", "Aon", "Marsh", "management", "$145K"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Captive collateral cash flow impact",
+        "Domicile regulatory complexity",
+        "Open claim run-off if captive unwinds",
+        "1099/contractor exposure classification",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-046",
+    slug="program-mga-stand-up-cannabis",
+    title="Program design — stand up cannabis-specific MGA / MGU program",
+    summary="Design an MGA program for cannabis cultivation + dispensary lines. Carrier paper selection, underwriting authority, reinsurance structure.",
+    scenario="""You're the program architect tasked with standing up a new MGA / MGU writing cannabis cultivation + dispensary GL/property/products.
+
+Market opportunity:
+- Cannabis insurance market estimated $1.2B in 2026, growing 18% YoY
+- Traditional carriers largely absent due to federal Schedule I status
+- Existing programs largely surplus-lines (E&S) with limited capacity
+- Cultivation + dispensary GL/property/products underserved
+- Insured population: ~14,000 licensed operators across legalized states
+
+MGA structure parameters:
+- Underwriting authority: $5M per risk per line
+- Aggregate authority: $50M per program
+- Geographic scope: 22 legalized states (recreational + medical)
+- Target premium volume: $60M-$80M year 1, scaling to $180M by year 5
+
+Carrier paper candidates:
+- Lloyd's syndicate-backed (multiple syndicates with appetite): 65% of capacity typical
+- Old Republic Specialty Programs: 25% capacity, requires reinsurance retro
+- Munich Re Specialty Programs: 20% capacity, requires loss-corridor structure
+- Berkshire Hathaway Specialty (BHSI): exploring; tentative 15%
+
+Reinsurance structure options:
+- Quota share 70%/30% (insurer/reinsurer split)
+- Excess of loss above $2M per risk (catastrophic protection)
+- Aggregate stop-loss at 90% loss ratio
+
+Underwriting + claims infrastructure needed:
+- Cannabis-specific underwriters (8-12 FTEs)
+- In-house claims (4-6 FTEs) or TPA (Crawford Specialty, Sedgwick Cannabis)
+- Inspection network (cannabis-specific physical security + cultivation specialists)
+- Compliance team (state-by-state license verification, banking, federal issues)
+
+Regulatory complexity:
+- Federal Schedule I status creates banking constraints (need cannabis-friendly bank — Safe Harbor, Dama, others)
+- State-by-state license / compliance verification required
+- Federal Crop Insurance Act exclusion for cannabis (no FCIC backstop)
+- TCJA § 280E tax treatment for cannabis operators affects loss-pick discussions
+- 2026 SAFER Banking Act status: pending; passage would significantly expand carrier appetite""",
+    primary_specialty="programs",
+    additional_specialties=["cannabis"],
+    difficulty=5,
+    time_limit_minutes=60,
+    packet={
+        "Market size": "$1.2B / 18% YoY growth",
+        "Insured population": "~14K licensed operators",
+        "States in scope": "22",
+        "Year 1 premium target": "$60M-$80M",
+        "Year 5 premium target": "$180M",
+        "Authority": "$5M per risk / $50M agg",
+        "Carrier paper candidates": "Lloyd's 65% · Old Republic 25% · Munich Re 20% · BHSI 15%",
+        "SAFER Banking Act": "Pending 2026",
+    },
+    red_flag_options=[
+        "Federal Schedule I status",
+        "SAFER Banking Act uncertainty",
+        "FCIC crop exclusion (no backstop)",
+        "Banking compliance complexity",
+        "State-by-state regulatory variation",
+        "MGA premium concentration risk",
+        "Capacity exhaustion in year 1",
+        "Claims infrastructure scaling",
+    ],
+    model_rationale="""This is a **program design** — recommend a phased structure with Lloyd's lead capacity, Crawford TPA, and conservative growth.
+
+**Capacity stack (Year 1 target $80M).**
+
+| Provider | Capacity | Mechanism |
+|---|---|---|
+| Lloyd's syndicates (3 lead) | 50% ($40M) | Direct binding authority |
+| Old Republic Specialty | 25% ($20M) | Quota-share reinsurance |
+| Munich Re Specialty | 15% ($12M) | Quota share + loss-corridor |
+| BHSI | 10% ($8M) | Excess-of-loss reinsurance backstop |
+
+**Year 1 design priorities.**
+
+**1. Underwriting structure.** Cannabis-specific underwriting requires:
+- Cultivation classification: indoor / greenhouse / outdoor (different risk profiles)
+- Dispensary class: medical-only / recreational / hybrid
+- Vertical-integration assessment (single-license vs multi-license operators)
+- Compliance check: state license, local permit, federal tax compliance
+- Physical security audit (cannabis is high-target for theft + diversion)
+
+**2. Claims handling.** Crawford Specialty Cannabis at 1.8-2.5% of premium for full TPA service. **Cannabis-specific claim adjusters required** — general adjusters routinely miss cannabis-specific defenses (e.g., state-compliance defense, product-liability re: edibles dosing).
+
+**3. Reinsurance / capacity.**
+- Quota share 70% direct / 30% retained on lead Lloyd's = standard MGA capital structure
+- Aggregate stop-loss at 100% loss ratio (with corridor 90-100% shared 50/50)
+- Year 1 capacity discipline: don't write to authority; write to ~85% capacity to allow for development volatility
+
+**4. Compliance infrastructure.**
+- Banking: Dama Financial or Safe Harbor for premium collection
+- State filing tracker: 22 states × 3 lines × annual filings = ~66 filings per cycle
+- Federal reporting: cannabis-specific 8300 / IRS reporting nuances
+- Cyber risk: cannabis MGAs are increasingly targeted (PII + federally non-compliant)
+
+**5. Pricing / loss-pick.**
+- Cultivation GL/property: $1.50-$2.20 per $100 of TIV (high)
+- Dispensary GL: $4-$6 per $1000 of revenue
+- Products liability (edibles especially): $2,500-$8,500 per location
+- Year 1 target loss ratio: 60-65% (cushion for development + IBNR)
+
+**Reinsurance attachment**: $2M xs $1M per risk is the right working layer. Catastrophic excess at $3M and above through panel. Aggregate stop-loss caps tail risk.
+
+**Federal risk management.**
+- SAFER Banking Act pending: if passed, carrier appetite expands significantly + pricing softens 8-15% within 12 months
+- Risk: federal enforcement priority shift (DEA, FBI) — recommend force-majeure-style clauses in fronting agreements
+- DOJ guidance (Cole Memorandum-era): currently constrained, post-2018 less clear
+
+**Long-term economics.**
+- Year 1: $80M premium × 32% expense ratio + $4.5M setup = ~$30M operating cost
+- Year 1 net margin (60% LR + 32% expense) = $6.4M before reinsurance ceding commission
+- Ceding commission: 5-8% of premium ceded = $3.5M-$5.6M
+- **Year 1 estimated net income**: $9.9M-$12.0M
+- Scaling to $180M by year 5: 25-35% IRR if loss ratios hold
+
+**Year 5 considerations.**
+- Capacity expansion (likely to need 2-3 more carriers as program scales)
+- Federal regulatory shift could create commodity-pricing pressure
+- M&A target by larger MGAs or carriers if performing
+
+**Recommendation.** Phase 1 (Year 1 $80M):
+1. Lloyd's lead syndicates (~$40M binding authority).
+2. Old Republic quota share reinsurance (25% / $20M).
+3. Munich Re reinsurance (15% / $12M) with loss-corridor.
+4. BHSI excess-of-loss backstop (10% / $8M).
+5. Crawford TPA + dedicated cannabis claims team.
+6. Banking via Dama Financial.
+7. Conservative Year 1 underwriting at 85% capacity utilization.
+8. Quarterly portfolio review with all capacity providers.
+9. Year 2 reassessment: scale to $120M if loss ratio < 70%.""",
+    model_premium_low=75000000,
+    model_premium_high=85000000,
+    model_recommendation="approve",
+    key_factors=[
+        {"label": "Capacity stack design", "match": ["Lloyd's", "Old Republic", "Munich Re", "BHSI", "quota share"], "weight": 1},
+        {"label": "Reinsurance structure", "match": ["quota share", "excess of loss", "aggregate stop-loss", "70/30"], "weight": 1},
+        {"label": "TPA / claims infrastructure", "match": ["Crawford", "TPA", "cannabis-specific", "adjusters"], "weight": 1},
+        {"label": "SAFER Banking Act / federal risk", "match": ["SAFER", "banking", "Schedule I", "federal", "Cole"], "weight": 1},
+        {"label": "State-by-state compliance", "match": ["22 states", "license", "compliance", "filing"], "weight": 1},
+        {"label": "Loss-pick / pricing", "match": ["loss pick", "60%", "65%", "cultivation", "dispensary"], "weight": 1},
+        {"label": "Banking infrastructure (Dama, Safe Harbor)", "match": ["Dama", "Safe Harbor", "banking", "premium collection"], "weight": 1},
+        {"label": "MGA economics / IRR", "match": ["IRR", "margin", "ceding commission", "expense ratio"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Federal Schedule I status",
+        "SAFER Banking Act uncertainty",
+        "Banking compliance complexity",
+        "MGA premium concentration risk",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-047",
+    slug="jurisdictional-tx-vs-ca-workers-comp",
+    title="Jurisdictional — TX vs CA workers comp for franchise restaurant chain",
+    summary="Franchise restaurant chain has 24 stores in TX + 18 in CA. Same exposures, two totally different WC regimes. Strategy and pricing.",
+    scenario="""A national franchise restaurant chain is acquiring a new portfolio of locations. The portfolio includes 24 stores in Texas and 18 stores in California.
+
+Same operations:
+- Class code 9082 (restaurant)
+- Avg payroll per store: $385K
+- Total TX payroll: $9.24M
+- Total CA payroll: $6.93M
+- Avg loss pattern across the chain: $1.20 per $100 payroll
+
+The two states could not be more different on WC.
+
+Texas (current carrier: Travelers, mod 0.94):
+- Texas is a "non-subscriber" state — WC is OPTIONAL
+- Insured currently subscribes (most large chains do)
+- TX benefits: state-set, no PTD benefits beyond 401 weeks unless complicated
+- Defense advantages: TX limits "stacking" of benefits + caps avg weekly wage
+- Subro and recovery: TX § 417 allows full subrogation against third parties
+
+California (target operations under acquisition):
+- WC is MANDATORY
+- Carrier choice required (no opt-out)
+- CA benefits: high (TTD + PD + Life Pension + supplemental job displacement)
+- CA Permanent Disability schedule: 0% to 100% rating
+- CA X-Mod system separate from NCCI mod
+- CA-specific cumulative trauma (CT) exposure
+- CA-specific QME (Qualified Medical Evaluator) process
+- CA HR compliance overlay (Cal/OSHA, AB-5 worker classification)
+
+Loss experience on target CA portfolio (3 yr):
+- $186K paid (5 claims)
+- 1 open cumulative trauma claim (~$45K reserve)
+- CA X-Mod: 1.08
+
+Indications for the integrated portfolio:
+- AmTrust Restaurants: TX $112K + CA $148K = $260K
+- Employers Holdings: TX $108K + CA $138K = $246K
+- ICW Group: TX $122K + CA $165K = $287K
+- AIG WC: TX $98K + CA $165K = $263K (TX aggressive, CA conservative)
+
+Other:
+- Insured currently uses 3-state restaurant program (TX, OK, AR); CA is new
+- Pre-acquisition employee count + payroll due diligence in progress""",
+    primary_specialty="multi-jurisdictional",
+    additional_specialties=["workers-comp-gc", "hospitality"],
+    difficulty=4,
+    time_limit_minutes=50,
+    packet={
+        "Portfolio": "24 TX + 18 CA stores",
+        "Class code": "9082 restaurant",
+        "Payroll": "$16.17M total ($9.24M TX + $6.93M CA)",
+        "TX mod": "0.94",
+        "CA X-Mod": "1.08",
+        "Indications combined": "Employers $246K · AIG $263K · AmTrust $260K · ICW $287K",
+        "CA open CT": "$45K reserve",
+    },
+    red_flag_options=[
+        "CA cumulative trauma claim type",
+        "CA QME process duration / cost",
+        "AB-5 misclassification risk",
+        "TX § 417 subrogation tactical use",
+        "CA X-Mod variability",
+        "Cal/OSHA compliance overlay",
+        "AI/waiver requirements differ by state",
+        "AIG aggressive TX / conservative CA structure",
+    ],
+    model_rationale="""This is an **approve with modifications** — Employers Holdings at $246K combined is the right answer for the integrated portfolio. The key insight: TX and CA WC are fundamentally different markets, requiring different underwriting approaches and pricing benchmarks.
+
+**Texas analysis.**
+- 9082 manual rate ~$1.62 per $100 payroll
+- 0.94 mod = $1.52 modified rate
+- $9.24M × $1.52 / $100 = $140K manual + risk credit/load
+- $108K-$122K range from indications = TX rate at end-of-band reflecting:
+  - Non-subscriber alternative (insured retains $)
+  - Subro recoveries reducing experience period
+  - TX state-set benefits limit catastrophic tail
+
+**California analysis.**
+- 9082 manual rate ~$2.85 per $100 payroll (significantly higher than TX)
+- 1.08 X-Mod = $3.08 modified rate
+- $6.93M × $3.08 / $100 = $213K manual + risk credit/load
+- $138K-$165K range from indications appears CHEAP at first glance, but:
+  - CA carriers price into a higher-than-manual rate due to severity tail
+  - The open CT claim adds $20K-$60K of pricing pressure
+  - Cal/OSHA + QME process drives defense costs
+- $138K (Employers) is at the low end — likely competitive bid
+
+**Why TX and CA differ structurally.**
+
+| Dimension | Texas | California |
+|---|---|---|
+| Coverage status | Optional ("non-subscriber") | Mandatory |
+| Benefits | State-set, capped | Variable, higher |
+| Cumulative Trauma | Less common claim type | High-frequency claim type |
+| Medical control | Carrier-directed | Employee + QME |
+| Subrogation | § 417 robust | Limited |
+| Mod system | NCCI | CA-specific X-Mod |
+| Defense cost | Lower per-claim | 2.5-4x TX per-claim |
+
+**TX § 417 strategic note.** Texas allows full subrogation against third parties. For a restaurant chain, this matters when:
+- Slip-and-fall claims may have third-party-property element (landlord, vendor)
+- Vendor product liability could be subrogation target
+- Employee personal-injury post-shift may have third-party at-fault driver
+
+**California cumulative trauma (CT).** $45K reserve on an open CT claim. CT claims in CA can:
+- Compound across multiple employers (apportionment)
+- Open the door to "stress" claims (mental injury from cumulative workplace exposure)
+- Persist for 18-36 months in QME process
+- Affect X-Mod for 5 years going forward
+
+**Cal/OSHA + AB-5 overlay.**
+- Cal/OSHA inspections triggered by injury reports
+- AB-5 (worker classification) means 1099 chef-instructors / consultants must meet ABC test
+- Failure to comply = WC misclassification + private right of action
+
+**HR compliance / classification.**
+- TX: standard restaurant compliance — fairly straightforward
+- CA: complex — must comply with Cal/OSHA + AB-5 + meal-break-and-rest-period laws + tip-credit prohibition
+
+**Pricing band.** $245K-$295K combined defensible. Employers $246K at low band but appropriately structured.
+
+**Recommendation.** Bind Employers Holdings at $246K combined ($108K TX + $138K CA) subject to:
+1. CA portfolio employee re-classification audit (AB-5 ABC test for any 1099/independent contractors).
+2. CA cumulative trauma claim review with QME-aware defense panel.
+3. Cal/OSHA preventive compliance review at all 18 CA stores within 6 months.
+4. TX § 417 subrogation strategy documented for chain attorney.
+5. Annual TX vs CA loss-development comparison; expect CA claims to take 2x as long to close.
+6. Annual X-Mod review specifically for CA portfolio.""",
+    model_premium_low=245000,
+    model_premium_high=295000,
+    model_recommendation="approve",
+    key_factors=[
+        {"label": "TX non-subscriber framework", "match": ["non-subscriber", "Texas", "optional", "§ 417", "subrogation"], "weight": 1},
+        {"label": "CA mandatory + benefits", "match": ["California", "mandatory", "TTD", "PD", "Life Pension", "supplemental"], "weight": 1},
+        {"label": "CA cumulative trauma (CT)", "match": ["cumulative trauma", "CT", "CA", "apportionment", "stress"], "weight": 1},
+        {"label": "QME process / defense cost", "match": ["QME", "Qualified Medical Evaluator", "defense", "duration"], "weight": 1},
+        {"label": "Mod systems comparison", "match": ["NCCI mod", "X-Mod", "0.94", "1.08", "CA-specific"], "weight": 1},
+        {"label": "AB-5 worker classification", "match": ["AB-5", "ABC test", "classification", "1099", "independent contractor"], "weight": 1},
+        {"label": "Cal/OSHA compliance overlay", "match": ["Cal/OSHA", "OSHA", "compliance", "inspection"], "weight": 1},
+        {"label": "Combined pricing analysis", "match": ["Employers", "AmTrust", "AIG", "$246K", "$260K", "$263K"], "weight": 1},
+    ],
+    model_red_flags=[
+        "CA cumulative trauma claim type",
+        "CA QME process duration / cost",
+        "AB-5 misclassification risk",
+        "Cal/OSHA compliance overlay",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-048",
+    slug="jurisdictional-surplus-lines-state-comparison",
+    title="Jurisdictional — E&S surplus lines tax + filing across 6 states",
+    summary="Wholesale broker placing layered E&S program. 6 states with different surplus-lines tax + filing requirements. Compliance strategy.",
+    scenario="""A wholesale broker is placing a layered excess casualty program for a multi-state manufacturer. The risk has exposure in 6 states with different surplus-lines requirements.
+
+States in scope: TX, NY, FL, CA, IL, GA
+
+Program structure:
+- Primary $5M xs $1M SIR (admitted carrier)
+- $25M xs $5M (Lloyd's syndicates — surplus lines)
+- $25M xs $30M (mixed E&S panel)
+
+Surplus-lines premium portion: ~$2.4M total
+
+State-by-state surplus lines comparison:
+
+**Texas:**
+- Surplus lines premium tax: 4.85%
+- Stamping fee: 0.15%
+- TX Surplus Lines Stamping Office (TX SLSO) filing required
+- TX Insurance Code § 981 governance
+- Diligent search not required (TX exempt list applies)
+
+**New York:**
+- Surplus lines premium tax: 3.6%
+- Stamping fee: 0.17% (varies)
+- NY Excess Line Association (ELANY) filing
+- Diligent-search requirement: 3 admitted-market declinations required
+- NRRA-compliant (no diligent search for commercial purchasers)
+
+**Florida:**
+- Surplus lines premium tax: 4.94%
+- Service fee: 0.07%
+- FL Surplus Lines Service Office filing
+- 90-day filing deadline post-binding
+- FL specific endorsement language requirements (FL § 626.913 et seq.)
+
+**California:**
+- Surplus lines premium tax: 3.0%
+- Stamping fee: 0.18% (declining trend)
+- CA Surplus Line Association (SLA) filing
+- 60-day filing window post-binding
+- CA-specific "California Insurance Code § 1764.5" disclosure to insured required
+
+**Illinois:**
+- Surplus lines premium tax: 3.5%
+- Fire marshal tax: 0.5% (additional, varies)
+- Surplus Line Association of Illinois (SLAI) filing
+- 30-day filing deadline
+
+**Georgia:**
+- Surplus lines premium tax: 4.0%
+- No separate stamping fee
+- GA Department of Insurance + GA SLA filing
+- 30-day filing deadline
+
+Multi-state allocation question:
+- Insured's HQ in TX → TX is the "home state" for NRRA purposes
+- NRRA (Non-Admitted and Reinsurance Reform Act) 2010: only home state can tax
+- Allocation method options: TX 100% / 100% home state vs. risk-based allocation
+
+Carrier (Lloyd's syndicate panel) confirms it has filed with all 6 state surplus-lines authorities under syndicate-level non-admitted authorization.""",
+    primary_specialty="multi-jurisdictional",
+    additional_specialties=["programs"],
+    difficulty=4,
+    time_limit_minutes=45,
+    packet={
+        "States": "TX, NY, FL, CA, IL, GA",
+        "Surplus-lines premium": "~$2.4M",
+        "Home state": "TX (insured HQ)",
+        "TX tax / stamping": "4.85% / 0.15%",
+        "NY tax / stamping": "3.6% / 0.17%",
+        "FL tax / service": "4.94% / 0.07%",
+        "CA tax / stamping": "3.0% / 0.18%",
+        "IL tax + fire marshal": "3.5% + 0.5%",
+        "GA tax": "4.0%",
+        "NRRA framework": "Home state taxation only",
+    },
+    red_flag_options=[
+        "NRRA home-state vs risk-allocation",
+        "Diligent-search requirements (NY)",
+        "FL § 626.913 endorsement language",
+        "CA § 1764.5 disclosure",
+        "Filing-deadline variance (30-90 days)",
+        "Fire marshal tax (IL)",
+        "Multi-state allocation disputes",
+        "Surplus-lines compliance audit risk",
+    ],
+    model_rationale="""This is an **approve as designed** — recommend TX home-state taxation under NRRA (compliant + simpler), with state-specific compliance for non-tax filing/disclosure requirements.
+
+**NRRA home-state framework.**
+
+The Non-Admitted and Reinsurance Reform Act of 2010 (15 U.S.C. § 8201 et seq.) provides:
+- **Single state of taxation**: only the insured's home state may tax/regulate the surplus-lines premium
+- **Home state determined by primary residence (individuals) or principal place of business (entities)**
+- Per NRRA, **TX = home state** for this insured
+
+**Tax calculation under home-state framework.**
+
+Apply only TX rate to full $2.4M premium:
+- TX surplus-lines tax: 4.85% × $2.4M = $116,400
+- TX stamping fee: 0.15% × $2.4M = $3,600
+- **Total tax + stamping: $120,000**
+
+**Compliance still required in each state for non-tax purposes:**
+
+| State | Filing | Disclosure | Deadline |
+|---|---|---|---|
+| TX | TX SLSO + state premium tax filing | Standard | Per quarterly cycle |
+| NY | ELANY filing (informational only) | Optional | n/a — TX taxes |
+| FL | FL SLSO filing | FL § 626.913 endorsement | 90 days |
+| CA | SLA filing | § 1764.5 to insured | 60 days |
+| IL | SLAI filing | n/a | 30 days |
+| GA | GA SLA filing | n/a | 30 days |
+
+**Disclosure documents must be sent in each state regardless of home-state taxation.**
+
+**Diligent-search requirements (pre-NRRA artifacts):**
+- NY: 3 admitted-market declinations under NY Ins Law § 2118 — **WAIVED for "commercial purchasers" under NRRA**
+- The insured manufacturer here is a commercial purchaser; no diligent search needed
+
+**FL § 626.913 endorsement.** Florida requires specific endorsement language on surplus-lines policies disclosing:
+- Surplus-lines carrier status
+- Not protected by FL guaranty fund
+- Specific policy-document language
+**Carrier must ensure FL-specific endorsement page is attached** even though tax flows to TX.
+
+**CA § 1764.5 disclosure.** California requires written disclosure to insured at binding stating:
+- "This insurance is issued by a surplus line insurer not licensed by the California Department of Insurance and not subject to its financial solvency regulation and enforcement... the policy is not subject to the California Insurance Guarantee Association."
+- Must be signed by insured or representative
+
+**Filing deadlines.** Different deadlines across states create compliance load:
+- IL + GA: 30 days
+- CA: 60 days
+- FL: 90 days
+- TX: quarterly
+**Recommend automated filing workflow** to ensure all jurisdictions filed within respective deadlines.
+
+**NRRA risk-allocation vs home-state debate.**
+
+Some carriers historically allocated tax based on risk location (multi-state allocation). NRRA explicitly eliminated this:
+- Single state taxation (home state)
+- Single state regulation
+- Simpler compliance + lower aggregate tax burden in many cases
+
+For this risk:
+- **Home-state (TX) only**: $120K total
+- **Risk-based allocation** (if states tried to charge separately): potentially $108K + double-counting in some states; complex compliance
+
+**Recommendation: home-state taxation under NRRA.**
+
+**Pricing band.** Compliance overhead ~$8K-$12K beyond the tax itself (filing fees, software, broker time).
+
+**Recommendation.** Place the program with these compliance protocols:
+1. TX home-state surplus-lines tax + stamping ($120K).
+2. State-specific compliance filings completed within respective deadlines.
+3. FL § 626.913 endorsement attached to FL-located policies.
+4. CA § 1764.5 disclosure signed by insured + filed.
+5. ELANY filing for NY (informational).
+6. Annual NRRA compliance audit by external counsel.
+7. Track changes in any state surplus-lines law affecting the program.""",
+    model_premium_low=120000,
+    model_premium_high=135000,
+    model_recommendation="approve",
+    key_factors=[
+        {"label": "NRRA home-state framework", "match": ["NRRA", "home state", "single state", "tax", "15 U.S.C."], "weight": 1},
+        {"label": "TX home-state calculation", "match": ["Texas", "TX", "4.85%", "0.15%", "home state", "stamping"], "weight": 1},
+        {"label": "FL § 626.913 endorsement", "match": ["§ 626.913", "Florida", "endorsement", "guaranty fund"], "weight": 1},
+        {"label": "CA § 1764.5 disclosure", "match": ["§ 1764.5", "California", "disclosure", "CIGA"], "weight": 1},
+        {"label": "Diligent-search NRRA waiver", "match": ["diligent search", "commercial purchaser", "NRRA", "NY § 2118"], "weight": 1},
+        {"label": "Filing deadline variance", "match": ["30-day", "60-day", "90-day", "quarterly", "filing deadline"], "weight": 1},
+        {"label": "State compliance filings", "match": ["TX SLSO", "ELANY", "FL SLSO", "SLA", "SLAI", "GA SLA"], "weight": 1},
+        {"label": "Risk-allocation rejection", "match": ["risk allocation", "home state", "double tax", "single state"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Diligent-search requirements (NY)",
+        "FL § 626.913 endorsement language",
+        "CA § 1764.5 disclosure",
+        "Filing-deadline variance (30-90 days)",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-049",
+    slug="jurisdictional-pollution-cleanup-five-states",
+    title="Jurisdictional — pollution cleanup standards across 5 states",
+    summary="Industrial property with chlorinated solvent contamination across MA, NJ, TX, OH, AZ. Cleanup costs vary 6-10x by state standard.",
+    scenario="""You're advising on the cleanup-cost-cap insurance + Pollution Legal Liability for an industrial owner with 5 properties across 5 different states. All properties have chlorinated solvent contamination (TCE / PCE) from historical operations.
+
+Sites:
+1. Worcester, MA — former machining facility
+2. Newark, NJ — former dry cleaner + light industrial
+3. Houston, TX — former chemical handling
+4. Cleveland, OH — former machine-tool / metal-plating
+5. Phoenix, AZ — former electronics manufacturing
+
+Same contaminant: TCE (trichloroethylene) in soil + groundwater across all 5 sites.
+
+Massachusetts (MCP — Massachusetts Contingency Plan):
+- Cleanup standard: Method 1 / Method 2 / Method 3 risk-based
+- Drinking water aquifer: GW-1 standard (1 µg/L TCE)
+- Statutory framework: M.G.L. c. 21E
+- LSP (Licensed Site Professional) signoff required
+- Estimated cleanup cost (Worcester site): $4.8M
+- Insurance market: PLL + cost-cap available; standard pricing
+
+New Jersey (ISRA + SRP):
+- ISRA (Industrial Site Recovery Act) triggers cleanup at sale/closure
+- SRP (Site Remediation Program) requires LSRP signoff
+- Drinking water standard: 1 µg/L TCE
+- Vapor intrusion: rigorous, with sub-slab + indoor air testing
+- Statutory framework: N.J.S.A. 13:1K
+- Estimated cleanup cost (Newark site): $6.2M
+- Insurance market: complex; NJ-specific endorsements often required
+
+Texas (TRRP — Texas Risk Reduction Program):
+- Tiered cleanup: 30/40/50 TAC Chapter 350
+- Drinking water standard: 5 µg/L TCE (less stringent than MA/NJ)
+- TCEQ involvement required
+- VCP (Voluntary Cleanup Program) provides liability release
+- Estimated cleanup cost (Houston site): $980K
+- Insurance market: mature; reasonable pricing
+
+Ohio (VAP — Voluntary Action Program):
+- Cleanup standards: industrial vs residential vs commercial use
+- Ohio EPA involvement
+- Liability release via No Further Action (NFA) letter
+- Drinking water standard: 5 µg/L TCE
+- Statutory framework: ORC § 3746
+- Estimated cleanup cost (Cleveland site): $1.4M
+- Insurance market: less competitive
+
+Arizona (WQARF — Water Quality Assurance Revolving Fund):
+- ADEQ-administered
+- Cleanup standards: aquifer protection levels
+- Drinking water standard: 5 µg/L TCE
+- Vapor intrusion guidance still evolving
+- Estimated cleanup cost (Phoenix site): $720K
+- Insurance market: less mature
+
+Total estimated cleanup cost: $14.1M across all 5 sites.
+
+Insurance program design:
+- Pollution Legal Liability $25M / $50M (10-year term)
+- Cost-cap insurance ~140% of estimated cleanup = $19.7M cap
+- Premium estimate (cost-cap): 8-12% of cap = $1.6M-$2.4M""",
+    primary_specialty="multi-jurisdictional",
+    additional_specialties=["environmental"],
+    difficulty=5,
+    time_limit_minutes=55,
+    packet={
+        "Sites": "5 (MA, NJ, TX, OH, AZ)",
+        "Common contaminant": "TCE / PCE chlorinated solvents",
+        "MA cleanup standard": "1 µg/L drinking water (MCP)",
+        "NJ cleanup standard": "1 µg/L drinking water (ISRA + SRP)",
+        "TX cleanup standard": "5 µg/L drinking water (TRRP)",
+        "OH cleanup standard": "5 µg/L drinking water (VAP)",
+        "AZ cleanup standard": "5 µg/L drinking water (WQARF)",
+        "Total cleanup estimate": "$14.1M",
+        "Cost-cap target": "$19.7M cap @ 8-12% = $1.6M-$2.4M",
+    },
+    red_flag_options=[
+        "NJ ISRA closure-trigger complexity",
+        "MA LSP / NJ LSRP professional sign-off",
+        "Vapor intrusion standards variance",
+        "MA + NJ 5x stricter than TX/OH/AZ",
+        "AZ vapor intrusion guidance evolving",
+        "10-year PLL tail",
+        "Cost-cap scope creep risk",
+        "Drinking water aquifer designation",
+    ],
+    model_rationale="""This is an **approve with modifications** — design a $20M cost-cap with state-specific endorsement protocols. The 5x-10x cost variance across states is the critical insurance underwriting consideration.
+
+**State variance analysis.**
+
+| Dimension | MA | NJ | TX | OH | AZ |
+|---|---|---|---|---|---|
+| DW standard (TCE) | 1 µg/L | 1 µg/L | 5 µg/L | 5 µg/L | 5 µg/L |
+| Cleanup driver | M.G.L. 21E | N.J.S.A. 13:1K | TRRP | VAP | WQARF |
+| Closure mechanism | Permanent Solution | Restricted Use Variance | TCEQ NFA | NFA letter | ADEQ NFA |
+| Cleanup cost / unit area | 1.0x baseline | 1.3x baseline | 0.2-0.25x baseline | 0.3x baseline | 0.15x baseline |
+
+**Cost variance driver: drinking water standard.**
+
+MA/NJ (1 µg/L) vs TX/OH/AZ (5 µg/L) creates 5x stricter compliance:
+- MA: $4.8M (most expensive)
+- NJ: $6.2M (most expensive due to combined ISRA complexity)
+- TX: $980K (similar contamination, much lower cleanup)
+- OH: $1.4M
+- AZ: $720K
+
+**Cost-cap insurance structure.**
+
+Total estimated $14.1M; recommend $20M cap (~140% of estimate):
+- Per-site sub-limits adequate to cover state-specific worst-case
+- 10-year coverage window matched to PLL term
+- Premium target 8-10% of cap = $1.6M-$2.0M
+
+**State-specific endorsements required.**
+
+1. **MA endorsement**: LSP-signed Permanent Solution achievement
+2. **NJ endorsement**: LSRP-signed Response Action Outcome (RAO); ISRA-compliant
+3. **TX endorsement**: TCEQ-approved Final Closure Letter under TRRP § 350
+4. **OH endorsement**: NFA letter receipt
+5. **AZ endorsement**: ADEQ-approved Verification Report
+
+**Vapor intrusion.**
+
+NJ has the most rigorous VI protocols (NJDEP VIG 2021). MA also requires VI assessment under MCP. TX/OH/AZ less prescriptive. Cost-cap should not exclude VI mitigation systems (sub-slab depressurization typical).
+
+**Why MA + NJ are 5-10x more expensive.**
+
+1. **Stricter standards**: 1 vs 5 µg/L creates 5x volume of impacted media requiring treatment
+2. **Aquifer protection**: MA + NJ aquifers often classified as primary drinking water; treatment to GW-1 / Class A standards
+3. **VI requirements**: more rigorous testing + mitigation
+4. **Professional oversight**: LSP/LSRP fees add 15-25% to project cost
+5. **Discovery rule**: stricter; less ability to use risk-based closure
+
+**Insurance market considerations.**
+
+MA/NJ + TX/OH/AZ require different carrier expertise:
+- Beazley Environmental: strong national; MA/NJ extensive case experience
+- AXA XL Environmental: good for multi-state portfolio
+- Allianz Environmental: strong on cost-cap; less competitive on PLL
+- Zurich Environmental: good for industrial; mid-tier MA/NJ expertise
+
+**Recommendation.** Bind:
+1. PLL $25M / $50M (Beazley) at $1.45M, covering all 5 sites for 10 years
+2. Cost-cap insurance $20M (panel) at $1.8M-$2.2M
+3. State-specific endorsements aligned with each site's regulatory framework
+4. LSP/LSRP designation locked at MA + NJ sites
+5. Quarterly status review across all 5 sites
+6. Allocation of total cost-cap by state per estimated cost ratios
+
+Subjectivities:
+1. Site-specific work plans approved by respective state regulators within 6 months.
+2. NJ ISRA closure strategy documented before binding.
+3. MA + NJ vapor intrusion sampling completed within 12 months.
+4. Annual remediation progress report to all carriers.
+5. Carrier panel counsel pre-selected for state-specific litigation.""",
+    model_premium_low=3000000,
+    model_premium_high=3800000,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "State-specific cleanup standards", "match": ["1 µg/L", "5 µg/L", "MCP", "ISRA", "TRRP", "VAP", "WQARF"], "weight": 1},
+        {"label": "MA vs NJ vs others cost variance", "match": ["5x", "10x", "MA", "NJ", "cost variance", "stricter"], "weight": 1},
+        {"label": "Professional signoff (LSP/LSRP)", "match": ["LSP", "LSRP", "Licensed Site Professional", "signoff"], "weight": 1},
+        {"label": "Vapor intrusion variability", "match": ["vapor intrusion", "VI", "sub-slab", "indoor air"], "weight": 1},
+        {"label": "Cost-cap design", "match": ["cost-cap", "$20M", "140%", "8-10%", "premium"], "weight": 1},
+        {"label": "PLL 10-year tail", "match": ["PLL", "10-year", "Pollution Legal Liability", "term"], "weight": 1},
+        {"label": "State-specific endorsements", "match": ["endorsement", "TCEQ", "NJDEP", "ADEQ", "Ohio EPA"], "weight": 1},
+        {"label": "Closure mechanisms", "match": ["NFA", "Permanent Solution", "RAO", "closure", "verification"], "weight": 1},
+    ],
+    model_red_flags=[
+        "NJ ISRA closure-trigger complexity",
+        "Vapor intrusion standards variance",
+        "MA + NJ 5x stricter than TX/OH/AZ",
+        "Cost-cap scope creep risk",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-050",
+    slug="program-mgmt-mga-loss-ratio-remediation",
+    title="Program management — MGA with 88% loss ratio, capacity at risk",
+    summary="3-year-old trucking MGA at 88% loss ratio. Carrier paper threatening non-renewal. Diagnose + remediate or wind down.",
+    scenario="""You're called in to assess a 3-year-old MGA writing fleet trucking primary auto. The program is at 88% loss ratio (target <70%); carriers are threatening non-renewal.
+
+Program profile:
+- Premium volume: $84M GWP year 3
+- Number of accounts: 286 fleet operators (avg fleet 22 trucks)
+- Geographic: 38 states, concentration in Midwest + Texas
+- Loss ratio history:
+  * Year 1: 64% (good)
+  * Year 2: 76% (concerning)
+  * Year 3: 88% (alarming)
+- Reserve adequacy: external actuary review suggests 4-7% additional development pending
+
+Capacity providers:
+- Lloyd's lead 60% — has notified MGA of non-renewal intent for 2026-27
+- AmTrust Specialty 25% — willing to continue but at 35% premium increase
+- Munich Re 15% — neutral
+
+Diagnostic findings:
+- 24 accounts (8% of book) responsible for 47% of losses
+- These 24 accounts have:
+  * Multiple-event histories
+  * Insufficient MVR review at intake
+  * Telematics not consistently required
+  * Mod factors >1.20 written despite policy
+- Underwriting team grew from 4 FTEs to 8 FTEs between Year 1 and Year 3 (too fast)
+- Average premium per account dropped 8% Year 1 → Year 3 (rate inadequacy on growth accounts)
+- Claims handled in-house by 3 FTEs; ratio is 95 claims per adjuster annually (industry standard 65-80)
+
+Remediation options:
+
+**Option A: Non-renew the 24 high-loss accounts**
+- Reduces premium by ~$12M (-14% volume)
+- Expected to reduce loss ratio by 18-22 points to ~66-70%
+- Risk: market disruption, accounts move to competitors, broker relationships strained
+- Cost: ~$120K in policy administration, broker comm chargeback negotiations
+
+**Option B: Reunderwrite the entire book with new criteria**
+- Reduces book by ~30% (~$25M premium)
+- Stricter intake: mod cap 1.05, mandatory telematics, MVR review of all drivers
+- Expected loss ratio: 58-65%
+- Cost: 4-6 month implementation; ~$340K in operational cost
+- Risk: significant volume reduction; broker relationship impact
+
+**Option C: Wind down the program**
+- Place existing accounts with replacement market
+- Run off claims with carrier paper
+- Cost: $1.2M-$1.8M to unwind
+- Risk: capital return + reputation if not handled well
+
+**Option D: Add reinsurance / quota share + scale**
+- Bring in 20% quota share reinsurance to absorb tail losses
+- Continue growth + dilute loss-ratio impact
+- Risk: doesn't fix underlying underwriting issues
+- Cost: ~$3M ceded commission impact""",
+    primary_specialty="programs",
+    additional_specialties=["transportation"],
+    difficulty=5,
+    time_limit_minutes=55,
+    packet={
+        "MGA": "3 yr, fleet trucking primary auto",
+        "Premium / accounts": "$84M / 286",
+        "Loss ratio trend": "64% → 76% → 88%",
+        "Concentration": "24 accounts = 47% of losses",
+        "Capacity": "Lloyd's 60% (non-renewing) · AmTrust 25% (+35%) · Munich Re 15%",
+        "Options": "A: non-renew 24 · B: reunderwrite all · C: wind down · D: add QS",
+    },
+    red_flag_options=[
+        "Lloyd's lead non-renewal threat",
+        "8% accounts driving 47% of losses",
+        "Underwriting team rapid growth",
+        "Claim adjuster ratio (95/FTE)",
+        "Rate inadequacy on growth accounts",
+        "Reserve development risk",
+        "Broker relationship dependency",
+        "AmTrust 35% rate increase requirement",
+    ],
+    model_rationale="""This is a **Option A + B hybrid** — non-renew the 24 high-loss accounts immediately AND reunderwrite the book over 12 months. Wind-down (Option C) is the wrong answer; quota-share (Option D) papers over rather than fixes.
+
+**Diagnostic insight.** The 88% loss ratio is concentrated, not diffuse:
+- 8% of accounts = 47% of losses
+- The 24 high-loss accounts have systematic underwriting failures (mod >1.20, no MVR review, no telematics)
+- Removing them eliminates the bulk of the loss problem
+- The remaining 92% of the book is closer to 70% loss ratio (manageable)
+
+**Why Option A first, then B.**
+
+Immediate (Option A): Non-renew 24 accounts as policies expire over next 6 months.
+- Reduces loss ratio quickly (within 12-18 months at next renewal cycle)
+- Demonstrates discipline to capacity providers (Lloyd's may reconsider)
+- Sets the table for the broader reunderwriting
+
+Then (Option B): Reunderwrite full book with new criteria.
+- Mod cap 1.05
+- Mandatory telematics with monitoring
+- MVR review every 6 months
+- Driver tenure tracking
+- Specific class exclusions (transit-mix, hazardous, owner-operator-only)
+
+**Capacity discussion.**
+
+Lloyd's non-renewal threat is conversation, not certainty. Once they see:
+- Non-renewal of 24 accounts (Option A) in writing
+- Reunderwriting plan (Option B) documented
+- New underwriting authority limits + override controls
+- TPA expansion (claims) plan
+- Year-over-year loss-ratio projection improvement
+...they often reconsider, especially with 60% capacity at stake.
+
+**AmTrust at +35%** is steep but defensible. **Negotiate to +20-25%** by:
+- Showing concentration data (8% accounts = 47% losses)
+- Demonstrating decisive corrective action
+- Quarterly board-level oversight commitment
+
+**Munich Re at 15%** is the wildcard. If they're truly neutral, they're the swing vote that determines whether the program survives.
+
+**Operational fixes.**
+
+1. **Underwriting team**: 8 FTEs is too many for $84M premium; trim to 5 (one per state region + 1 head + 1 quality control).
+2. **Claims FTEs**: 3 FTEs for 286 accounts is too few. Add 2 FTEs or outsource to TPA. Industry standard is one FTE per 70-80 claims annually.
+3. **Quality control**: Implement underwriting peer review on accounts with mod >1.0.
+4. **Audit**: Quarterly underwriting audit by external consultant.
+
+**Reserve development.**
+
+Actuary review suggests 4-7% additional development. Recommend:
+- Increase IBNR reserves immediately
+- Develop case reserves on all open claims to expected ultimate (not just current incurred)
+- Strengthen reserving for legacy 24 accounts before non-renewal effective dates
+
+**Broker relationships.**
+
+Non-renewing 24 accounts will impact 2-3 broker relationships disproportionately. Mitigate:
+- Provide 90-day notice (not 30)
+- Offer transition assistance (introduce alternative markets)
+- Specifically explain why (high loss ratios, not the broker)
+- Maintain the 92% of accounts that work for both parties
+
+**Wind-down (Option C) is wrong.** $1.2-$1.8M unwind cost + reputational damage destroys 3 years of broker relationship building. The program is fixable.
+
+**Quota share (Option D) is wrong.** It papers over the underwriting issue without fixing it. Reinsurer will quickly figure out the concentration and demand recapture or pricing increases that match Option B.
+
+**Recommendation.** Execute Option A (immediate) + Option B (12 months):
+1. Non-renew the 24 high-loss accounts at next renewal (executed within 6 months).
+2. Reunderwrite full book with new criteria (12-month rollout).
+3. Reduce underwriting FTE to 5; add 2 claims FTE.
+4. Implement quarterly external underwriting audit.
+5. Increase IBNR reserves immediately to actuary-recommended levels.
+6. Negotiate AmTrust to +20-25% with documented corrective action.
+7. Document plan for Munich Re + present to Lloyd's lead for reconsideration.
+8. Year 4 target loss ratio: 65-70%.
+9. Year 5 target: continued growth at 12-15% with maintained loss ratio.""",
+    model_premium_low=1,
+    model_premium_high=100,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "Concentration analysis", "match": ["8%", "24 accounts", "47%", "concentration", "high-loss"], "weight": 1},
+        {"label": "Option A: non-renew", "match": ["non-renew", "Option A", "24 accounts", "expire"], "weight": 1},
+        {"label": "Option B: reunderwrite", "match": ["reunderwrite", "Option B", "intake", "mod 1.05", "telematics"], "weight": 1},
+        {"label": "Reject Option C (wind down)", "match": ["wind down", "Option C", "$1.2M", "$1.8M", "destroy"], "weight": 1},
+        {"label": "Reject Option D (quota share)", "match": ["quota share", "Option D", "paper over", "underlying"], "weight": 1},
+        {"label": "Underwriting / claims FTE rebalance", "match": ["FTE", "8 to 5", "3 to 5", "ratio", "audit"], "weight": 1},
+        {"label": "Reserve development", "match": ["IBNR", "reserve", "4-7%", "development", "ultimate"], "weight": 1},
+        {"label": "Capacity negotiation", "match": ["Lloyd's", "AmTrust", "Munich Re", "+35%", "+20-25%", "negotiate"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Lloyd's lead non-renewal threat",
+        "8% accounts driving 47% of losses",
+        "Underwriting team rapid growth",
+        "Reserve development risk",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-051",
+    slug="program-mgmt-distribution-mgr-strategy",
+    title="Program management — distribution mgmt for $48M energy E&S program",
+    summary="$48M energy E&S program with 38 wholesale brokers. Concentration risk + broker performance variability. Distribution strategy.",
+    scenario="""You manage distribution for a $48M GWP energy-focused surplus lines program (drilling contractors + midstream).
+
+Profile:
+- Premium: $48M GWP (year 4)
+- 38 contracted wholesale brokers
+- Top 5 brokers: $24M (50% of GWP)
+- Top 10 brokers: $34M (71%)
+- Bottom 18 brokers (premium <$200K each): $4.2M (9%)
+- Geographic concentration: TX 64%, OK 18%, LA 8%, NM 6%, other 4%
+
+Performance issues:
+- Top broker #1 ($8.4M GWP): consistently 78% loss ratio (target 68%)
+- Top broker #2 ($6.2M GWP): excellent 52% loss ratio
+- Top broker #3 ($4.8M GWP): 71% loss ratio (acceptable)
+- Top broker #4 ($2.6M GWP): 91% loss ratio (concerning)
+- Top broker #5 ($2.0M GWP): 64% loss ratio (good)
+- Bottom 18 brokers: aggregated 73% loss ratio
+- Commission structure: 12% base + 2% contingent (PB target 65%)
+
+Operational issues:
+- Underwriting referrals from broker #1 and #4 quality-flagged by U/W team frequently
+- Both brokers (#1 + #4) write significant Bakken (ND) exposure — outside core appetite
+- Broker #1 has a known relationship with the program's senior u/w; appearance issue
+- Broker #4 sells to drilling contractors with significant H2S exposure; pricing inadequate
+
+Strategic options:
+
+**Option A: Restructure commission**
+- Reduce base from 12% to 11%, raise contingent from 2% to 4%
+- Push brokers toward better-performing accounts
+- Risk: brokers move some business to competitors
+
+**Option B: Trim bottom 18 brokers**
+- Discontinue contracts with all brokers writing <$200K
+- Reduces premium by $4.2M but cuts $2.1M in operational/comm costs
+- Risk: market diversification reduced
+
+**Option C: Restrict appetite**
+- Eliminate ND Bakken from book entirely
+- Eliminate H2S-heavy accounts unless premium reflects risk
+- Risk: lose ~$3M in marginal premium
+
+**Option D: Fire broker #1**
+- $8.4M premium loss
+- Highest loss ratio + relationship issue
+- Risk: severe market reaction; could disrupt relationships with other brokers
+
+**Option E: Combination — coach broker #1, fire broker #4, trim bottom 18**
+- Performance improvement plan for #1 with quarterly reviews
+- Terminate #4 immediately
+- Trim bottom 18 over 12 months
+- Net premium change: -$6.8M ($2.6M from #4 + $4.2M from bottom 18)
+- Net loss ratio improvement: ~5-7 points""",
+    primary_specialty="programs",
+    additional_specialties=["energy"],
+    difficulty=4,
+    time_limit_minutes=45,
+    packet={
+        "Program": "$48M E&S energy",
+        "Brokers": "38 wholesale",
+        "Top 5 / 10 concentration": "$24M (50%) / $34M (71%)",
+        "Broker #1 / #4 issues": "78% LR / 91% LR + appetite + relationship",
+        "Commission structure": "12% base + 2% contingent (target 65% LR)",
+        "Options": "A: comm restructure · B: trim bottom 18 · C: appetite restrict · D: fire #1 · E: combination",
+    },
+    red_flag_options=[
+        "Broker #1 relationship with senior U/W",
+        "Broker #4 91% loss ratio",
+        "Bakken / H2S appetite drift",
+        "Concentration (top 10 = 71%)",
+        "Bottom-tier operational drag",
+        "Commission structure not aligned",
+        "Quality of underwriting referrals",
+        "Geographic concentration (TX 64%)",
+    ],
+    model_rationale="""This is **Option E** — execute the combination strategy with phased timing. Single-option approaches are insufficient given the multi-factor issues.
+
+**Diagnostic framework.**
+
+The program has three distinct issues that single options can't solve:
+1. **Performance variance**: brokers #1 + #4 dragging the book (need targeted interventions)
+2. **Operational efficiency**: bottom 18 brokers consuming resources disproportionately (need trimming)
+3. **Appetite drift**: Bakken + H2S exposure outside core competence (need restriction)
+
+**Option E execution sequence.**
+
+**Months 1-3: Fire broker #4.**
+- 91% loss ratio is structurally unacceptable
+- Premium loss: $2.6M (manageable)
+- H2S pricing inadequacy = signaled appetite breach
+- Documentation: written notice with specific performance gaps
+- Replacement: capacity becomes available for top broker #2 to write more
+
+**Months 1-12: Coach broker #1.**
+- $8.4M is too large to fire abruptly
+- Implement performance improvement plan:
+  - Mandatory pre-submission underwriting review for all new business
+  - Quarterly portfolio review with specific loss-ratio targets
+  - Cease writing Bakken exposure within 6 months
+  - 18-month timeline to 70% loss ratio or non-renewal
+- Senior u/w relationship: rotate broker #1 to different u/w to address optics issue
+- Set clear written expectations
+
+**Months 6-12: Trim bottom 18.**
+- 90-day notice to all brokers with <$200K premium
+- Premium loss: $4.2M
+- Operational savings: $2.1M-$2.8M (commission + claim handling + system administration)
+- Net financial: -$1.4M to +$0.6M (modest)
+- Strategic benefit: focus resources on performing brokers
+
+**Months 12-18: Reassess.**
+- If broker #1 hits 70%: continue relationship
+- If still at 78%+: non-renew with 90-day notice
+- Replacement: capacity for top broker #2 expansion + strategic new broker addition
+- Evaluate commission restructure (Option A) at this point
+
+**Why not just Option D (fire #1)?**
+
+- $8.4M premium loss too aggressive
+- Other brokers may interpret as instability
+- Loss of relationship intelligence on Texas energy market
+- Better to give performance improvement opportunity first
+
+**Why not just Option A (commission restructure)?**
+
+- Doesn't address the specific problem brokers
+- Affects good performers equally
+- Commission alone doesn't fix appetite or relationship issues
+
+**Geographic concentration.**
+
+TX 64% is concentrated but reflects core competence. **No action needed** — Permian + Eagle Ford are highest-margin opportunities. Don't artificially diversify into lower-margin geographies.
+
+**Commission economics for broker #4 termination.**
+
+- Lost premium: $2.6M
+- Saved commission: $364K (14% effective)
+- Saved claim handling (excess loss ratio): ~$390K
+- Saved operational drag: ~$45K
+- **Net financial: +$199K** in year 1, scaling thereafter
+
+**Concentration risk monitoring.**
+
+Top 5 = 50% of GWP is high concentration. After execution:
+- Broker #1 reduced or eliminated
+- Broker #4 eliminated
+- Top 5 likely shifts to brokers #2, #3, #5 + 2 new (or expanded) relationships
+- Target top 5 concentration: 40-45% by Year 6
+
+**Expected outcomes.**
+
+| Year | Premium | LR | Concentration |
+|---|---|---|---|
+| Year 4 (now) | $48M | 73% | Top 5 = 50% |
+| Year 5 | $42M | 67% | Top 5 = 45% |
+| Year 6 | $46M | 64% | Top 5 = 42% |
+| Year 7 | $52M | 62% | Top 5 = 40% |
+
+**Recommendation.** Execute Option E with the phased timing above:
+1. Fire broker #4 within 90 days; document performance gaps.
+2. Initiate broker #1 performance improvement plan within 30 days.
+3. Notice bottom 18 brokers within 180 days.
+4. Reassign broker #1 to different u/w within 30 days.
+5. Quarterly board reporting on execution + loss-ratio trajectory.
+6. Year-end Year 4: review and adjust.
+7. Year 5: consider commission restructure (Option A) if structural improvements stick.""",
+    model_premium_low=1,
+    model_premium_high=100,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "Multi-factor diagnosis", "match": ["performance variance", "operational efficiency", "appetite drift", "multi-factor"], "weight": 1},
+        {"label": "Option E combination strategy", "match": ["combination", "Option E", "coach", "fire", "trim", "phased"], "weight": 1},
+        {"label": "Broker #4 termination economics", "match": ["broker #4", "91%", "fire", "$2.6M", "termination"], "weight": 1},
+        {"label": "Broker #1 performance improvement plan", "match": ["broker #1", "performance improvement", "coach", "PIP", "18-month"], "weight": 1},
+        {"label": "Bottom 18 trim", "match": ["bottom 18", "$4.2M", "operational savings", "90-day notice"], "weight": 1},
+        {"label": "Relationship / optics fix", "match": ["senior u/w", "relationship", "rotate", "appearance"], "weight": 1},
+        {"label": "Concentration monitoring", "match": ["top 5", "50%", "40%", "concentration"], "weight": 1},
+        {"label": "Commission restructure timing", "match": ["commission", "12%", "11%", "contingent", "Option A", "Year 5"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Broker #1 relationship with senior U/W",
+        "Broker #4 91% loss ratio",
+        "Bakken / H2S appetite drift",
+        "Concentration (top 10 = 71%)",
+    ],
+))
+
+cases.append(Case(
+    code="DOJO-2026-052",
+    slug="program-mgmt-emerging-class-program",
+    title="Program management — emerging class (vertical farming) at $18M GWP",
+    summary="3-year-old vertical farming MGA at $18M GWP. Loss ratio uncertain (immature). Capacity provider asking for actuarial justification.",
+    scenario="""You manage a 3-year-old MGA writing vertical / indoor farming property + GL.
+
+Profile:
+- Premium: $18M GWP, growing 65% YoY (year 1: $4.1M, year 2: $8.6M, year 3: $14.8M, year 4 projected $24M)
+- Number of accounts: 184 (avg $80K premium)
+- Geographic: 28 states (CA, AZ, NV concentration ~55%)
+- Class of business: vertical farms growing leafy greens, herbs, micro-greens
+- Avg facility size: 18,000 sq ft, $4-12M asset value
+- Capacity: Lloyd's syndicate 70% + Markel Specialty 30%
+
+Loss experience:
+- Total paid + reserves: $7.8M
+- Major events:
+  * 4 fires (largest $3.4M, smallest $480K) — LED ballast / electrical-related
+  * 2 crop losses from HVAC failure ($620K, $410K)
+  * 1 flood (sprinkler malfunction) $740K
+- Loss ratio Year 1: 28% (low)
+- Loss ratio Year 2: 64% (concerning trend)
+- Loss ratio Year 3: 88% (alarming)
+- Loss ratio Year 4 YTD: 71% (8 mo immature)
+
+Capacity provider position:
+- Lloyd's syndicate questioning ongoing capacity commitment
+- Munich Re passing on follow capacity opportunity
+- Markel Specialty willing to increase capacity but wants improved underwriting
+- Insurance industry is just now developing actuarial tables for indoor farming
+
+Operational challenges:
+- Class is emerging — no NCCI or ISO standard class codes
+- Loss data is sparse industry-wide
+- Many operators bankruptcies in 2024-2025 (industry capital crunch)
+- 3 of the 4 fires were at operators that later filed Chapter 11
+- Underwriting team developed proprietary risk-rating model with 14 variables
+- Insurance market dynamics: only 4-5 carriers seriously playing the space
+
+Strategic decisions needed:
+1. **Reserve adequacy**: external actuary says IBNR development could be 15-20%
+2. **Pricing**: rates need to increase but operators are price-sensitive
+3. **Capacity strategy**: protect Lloyd's relationship vs. seek new capacity
+4. **Underwriting changes**: stricter requirements vs. competitive position
+5. **Class definition**: continue all vertical farming or narrow to leafy greens only""",
+    primary_specialty="programs",
+    additional_specialties=["vertical-farming"],
+    difficulty=5,
+    time_limit_minutes=55,
+    packet={
+        "Program": "Vertical farming, year 4",
+        "GWP trajectory": "$4.1M → $8.6M → $14.8M → $24M projected",
+        "Loss ratio": "28% → 64% → 88% → 71% YTD",
+        "Capacity": "Lloyd's 70% (questioning) + Markel 30% (open to more)",
+        "Reserve development": "IBNR could be +15-20%",
+        "Major losses": "4 fires (electrical) + 2 HVAC crop + 1 sprinkler",
+        "Operator bankruptcies": "3 of 4 fire-loss operators in Ch 11",
+    },
+    red_flag_options=[
+        "Operator bankruptcy correlation",
+        "LED / electrical fire pattern",
+        "HVAC failure crop-loss pattern",
+        "Emerging class with sparse industry data",
+        "Lloyd's capacity at risk",
+        "Reserve development uncertainty",
+        "Growth outpacing capability",
+        "Customer credit risk (industry capital crunch)",
+    ],
+    model_rationale="""This is a **comprehensive restructuring decision** — recommend the following integrated approach: stabilize the book, fix the operational issues, and execute capacity diversification before further growth.
+
+**Diagnostic insight.**
+
+The 88% Year 3 loss ratio + IBNR development concerns combined with industry-wide bankruptcy correlation reveals two distinct risk profiles:
+1. **Property risk**: real and severe (4 fires, 2 HVAC losses, 1 flood)
+2. **Credit risk**: operator bankruptcies correlate with fire losses (moral hazard / abandonment risk)
+
+**Key insight**: Three of four fire-loss operators filed Chapter 11. This isn't coincidence — financially stressed operators defer maintenance, leading to electrical/HVAC failures. The fire-property risk and credit/financial risk are correlated.
+
+**Integrated recommendations.**
+
+**1. Reserve strengthening immediately.**
+- Increase IBNR to actuary-recommended levels (+15-20%)
+- Develop case reserves on all open claims to expected ultimate
+- This will hurt Year 4 reported loss ratio but is necessary for capital adequacy
+
+**2. Pricing actions (year 4 binding).**
+- Increase rates 18-25% across the book
+- Differentiate pricing by:
+  - Operator credit rating (D&B + recent annual reports)
+  - Facility age + electrical system age
+  - Sprinkler + HVAC redundancy
+  - Crop value at risk + perishability
+- Implement specific surcharges for high-risk operators
+
+**3. Underwriting tightening.**
+- Mandatory electrical inspection by IEEE-certified contractor for new accounts
+- HVAC redundancy required (N+1 minimum for cooling-critical accounts)
+- Sprinkler system commissioning report on file
+- Operator financial review: 2 years P&L, current cash runway
+- Class restriction: focus on leafy greens + herbs (less catastrophic on HVAC failure than fruit/vine)
+
+**4. Capacity diversification.**
+- Continue Lloyd's relationship (60-65%) with stronger underwriting discipline
+- Increase Markel to 25-30%
+- Add new capacity provider Year 5: target 10-15% with another Lloyd's syndicate or specialty market
+- Target capacity stack: Lloyd's 60% + Markel 25% + new syndicate 15%
+
+**5. Growth pace deceleration.**
+- Year 4 growth: 25% (vs 65% trajectory)
+- Year 5 growth: 18-22%
+- Year 6 growth: stabilize at 15-18%
+- Sustainable growth, not capacity-stretching growth
+
+**6. Class definition narrowing.**
+- Phase out commodity crop greenhouses (not vertical farming proper)
+- Focus on enclosed vertical systems (controlled environment ag)
+- Decline cannabis-related vertical operations (separate insurance ecosystem)
+
+**Capacity provider conversation framework.**
+
+Lloyd's syndicate sees an 88% loss ratio and wants to exit. The conversation must demonstrate:
+- **Reserves**: now at adequate level (IBNR strengthened)
+- **Pricing**: 18-25% rate increase implemented
+- **Underwriting**: tightened criteria with operator-credit review
+- **Class**: focused on best-performing sub-classes
+- **Growth**: decelerated to sustainable pace
+- **Diversification**: not over-concentrated
+
+**Year-4 reported loss ratio impact.**
+- Current YTD: 71% at 8 months immature
+- With strengthening reserves: likely 78-82% reported by year-end
+- This is the right number — reflects actual development, not premature optimism
+
+**Year 5 outlook (assuming execution).**
+- Rate adequacy improves loss ratio by 6-10 points
+- Underwriting discipline + class focus: 4-6 points improvement
+- Target Year 5 loss ratio: 65-72%
+
+**Industry context.**
+
+Vertical farming insurance is genuinely emerging. The class has structural challenges:
+- Capital-intensive operators with thin margins
+- Technology evolution (LED, HVAC, automation) outpaces actuarial data
+- Crop value variability (perishable, time-sensitive)
+- Concentration of suppliers (limited equipment vendors creates correlated risk)
+
+**Recommendation summary.**
+
+This is not a program to wind down (Option C-equivalent) but to discipline + reshape:
+1. Strengthen reserves immediately.
+2. Implement rate + underwriting changes for Year 4 renewals.
+3. Coach Lloyd's relationship with documented improvements.
+4. Add new capacity Year 5 (proactive, not reactive).
+5. Decelerate growth to sustainable pace.
+6. Narrow class definition.
+7. Build operator-credit review into underwriting.
+8. Quarterly capacity provider updates with full transparency.""",
+    model_premium_low=1,
+    model_premium_high=100,
+    model_recommendation="quote_with_modifications",
+    key_factors=[
+        {"label": "Property + credit risk correlation", "match": ["bankruptcy", "Chapter 11", "credit risk", "correlation", "moral hazard"], "weight": 1},
+        {"label": "Reserve strengthening priority", "match": ["IBNR", "reserve", "+15-20%", "actuary", "strengthen"], "weight": 1},
+        {"label": "Rate increase actions", "match": ["18-25%", "rate increase", "pricing", "year 4"], "weight": 1},
+        {"label": "Underwriting tightening", "match": ["IEEE", "electrical inspection", "HVAC redundancy", "N+1", "sprinkler"], "weight": 1},
+        {"label": "Capacity diversification", "match": ["Lloyd's", "Markel", "new capacity", "diversification", "Year 5"], "weight": 1},
+        {"label": "Growth deceleration", "match": ["growth", "65%", "25%", "decelerate", "sustainable"], "weight": 1},
+        {"label": "Class narrowing", "match": ["class definition", "leafy greens", "herbs", "narrow", "focus"], "weight": 1},
+        {"label": "Operator credit review", "match": ["operator credit", "D&B", "P&L", "cash runway", "financial review"], "weight": 1},
+    ],
+    model_red_flags=[
+        "Operator bankruptcy correlation",
+        "LED / electrical fire pattern",
+        "Lloyd's capacity at risk",
+        "Reserve development uncertainty",
+    ],
+))
+
+
+# ===========================================================================
+# Render
+# ===========================================================================
+
+HEADER = """-- =============================================================================
+-- Dojo Seed Batch — generated by scripts/generate_dojo_seed.py
+--
+-- ~50 new practice cases across 22 lines of insurance + jurisdictional +
+-- programs scenarios. Codes DOJO-2026-002 onward.
+--
+-- Regenerate with:  python3 scripts/generate_dojo_seed.py
+-- =============================================================================
+"""
+
+
+def main() -> None:
+    out_dir = os.path.join(
+        os.path.dirname(__file__), "..", "supabase", "migrations"
+    )
+    out_path = os.path.normpath(
+        os.path.join(out_dir, "20260514000000_dojo_seed_cases_batch.sql")
+    )
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(HEADER + "\n")
+        for c in cases:
+            f.write(c.to_sql())
+            f.write("\n")
+    print(f"Wrote {len(cases)} cases to {out_path}")
+
+
+if __name__ == "__main__":
+    main()

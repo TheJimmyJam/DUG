@@ -36,26 +36,42 @@ export const SPECIALTIES: Specialty[] = [
   { slug: "professional-liability", label: "Professional Liability / E&O", group: "Liability" },
   { slug: "directors-officers", label: "Directors & Officers", group: "Liability" },
   { slug: "employment-practices", label: "Employment Practices", group: "Liability" },
+  { slug: "complex-casualty", label: "Complex Casualty", group: "Liability" },
+  { slug: "workers-comp-gc", label: "Workers' Comp — Guaranteed Cost", group: "Liability" },
+  { slug: "workers-comp-ls", label: "Workers' Comp — Loss Sensitive", group: "Liability" },
+  { slug: "occ-accident", label: "Occupational Accident", group: "Liability" },
+  { slug: "media-liability", label: "Media Liability", group: "Liability" },
 
   // Specialty
   { slug: "marine", label: "Marine / Cargo", group: "Specialty" },
+  { slug: "ocean-marine", label: "Ocean Marine", group: "Specialty" },
+  { slug: "inland-marine", label: "Inland Marine", group: "Specialty" },
+  { slug: "commercial-auto", label: "Commercial Auto", group: "Specialty" },
   { slug: "aviation", label: "Aviation", group: "Specialty" },
   { slug: "energy", label: "Energy / Oil & Gas", group: "Specialty" },
   { slug: "construction", label: "Construction", group: "Specialty" },
   { slug: "transportation", label: "Trucking / Transportation", group: "Specialty" },
   { slug: "healthcare", label: "Healthcare / Medical", group: "Specialty" },
   { slug: "entertainment", label: "Entertainment Venues", group: "Specialty" },
+  { slug: "sports", label: "Sports / Athletics", group: "Specialty" },
   { slug: "hospitality", label: "Hospitality / F&B", group: "Specialty" },
+  { slug: "environmental", label: "Environmental", group: "Specialty" },
+  { slug: "public-entity", label: "Public Entity", group: "Specialty" },
 
   // Emerging
   { slug: "cyber", label: "Cyber Liability", group: "Emerging" },
   { slug: "cannabis", label: "Cannabis / Hemp", group: "Emerging" },
   { slug: "bess", label: "Battery Energy Storage", group: "Emerging" },
+  { slug: "green-energy", label: "Green Energy / Renewables", group: "Emerging" },
   { slug: "drones", label: "Drones / UAS", group: "Emerging" },
   { slug: "ev-charging", label: "EV Charging Stations", group: "Emerging" },
   { slug: "crypto-mining", label: "Crypto Mining Operations", group: "Emerging" },
   { slug: "vertical-farming", label: "Vertical / Indoor Farming", group: "Emerging" },
   { slug: "psychedelics", label: "Psychedelic Therapy Clinics", group: "Emerging" },
+
+  // Other
+  { slug: "programs", label: "Program Business / MGA", group: "Other" },
+  { slug: "multi-jurisdictional", label: "Multi-Jurisdictional", group: "Other" },
 
   // Personal
   { slug: "high-net-worth", label: "High Net Worth Personal", group: "Personal" },
