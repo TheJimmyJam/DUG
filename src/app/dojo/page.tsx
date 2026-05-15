@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { SiteHeader } from "@/components/site-header";
 import { SiteFooter } from "@/components/site-footer";
 import { WaitlistForm } from "./waitlist-form";
+import { createClient } from "@/lib/supabase/server";
 import {
   ArrowRight,
   CheckCircle2,
@@ -28,7 +29,33 @@ export const metadata = {
     "Get reps at the plate. Practice underwriting cases, compete in contests, and build a public training record before your first paid engagement.",
 };
 
-export default function DojoPage() {
+// Refresh hero stats every 60s — cases don't change minute-to-minute.
+export const revalidate = 60;
+
+async function getDojoStats() {
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("dojo_cases")
+      .select("primary_specialty, difficulty")
+      .eq("status", "published");
+    if (error || !data) {
+      return { caseCount: 1, specialtyCount: 12, difficultyTiers: 5 };
+    }
+    const specialtySet = new Set(data.map((c) => c.primary_specialty));
+    const difficulties = new Set(data.map((c) => c.difficulty));
+    return {
+      caseCount: data.length,
+      specialtyCount: specialtySet.size,
+      difficultyTiers: difficulties.size || 5,
+    };
+  } catch {
+    return { caseCount: 1, specialtyCount: 12, difficultyTiers: 5 };
+  }
+}
+
+export default async function DojoPage() {
+  const { caseCount, specialtyCount, difficultyTiers } = await getDojoStats();
   return (
     <>
       <SiteHeader />
@@ -74,9 +101,9 @@ export default function DojoPage() {
                 instead of waiting for a carrier to sweep you up and train you.
               </p>
               <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-                <Link href="/dojo/cases/coastal-habitational-renewal" className="w-full sm:w-auto">
+                <Link href="/dojo/cases" className="w-full sm:w-auto">
                   <Button size="lg" variant="primary" className="w-full sm:w-auto">
-                    Take the first case
+                    Browse {caseCount} cases
                     <ArrowRight className="h-4 w-4" />
                   </Button>
                 </Link>
@@ -94,15 +121,15 @@ export default function DojoPage() {
               {/* Quick proof line */}
               <div className="mt-8 grid max-w-xl grid-cols-3 gap-4 border-t border-[#1a1008]/15 pt-6 text-sm">
                 <div>
-                  <div className="text-2xl font-semibold tracking-tight !text-[#1a1008]">1</div>
-                  <div className="!text-[#5c4033]">live case · more soon</div>
+                  <div className="text-2xl font-semibold tracking-tight !text-[#1a1008]">{caseCount}</div>
+                  <div className="!text-[#5c4033]">live case{caseCount === 1 ? "" : "s"}</div>
                 </div>
                 <div>
-                  <div className="text-2xl font-semibold tracking-tight !text-[#1a1008]">12</div>
+                  <div className="text-2xl font-semibold tracking-tight !text-[#1a1008]">{specialtyCount}</div>
                   <div className="!text-[#5c4033]">specialty lines</div>
                 </div>
                 <div>
-                  <div className="text-2xl font-semibold tracking-tight !text-[#1a1008]">5</div>
+                  <div className="text-2xl font-semibold tracking-tight !text-[#1a1008]">{difficultyTiers}</div>
                   <div className="!text-[#5c4033]">difficulty tiers</div>
                 </div>
               </div>
@@ -293,7 +320,7 @@ export default function DojoPage() {
                 <div className="mt-5 flex items-center justify-between border-t border-[var(--color-border)] pt-4 text-xs text-[var(--color-muted)]">
                   <span className="flex items-center gap-1.5">
                     <Flame className="h-3.5 w-3.5 text-[var(--color-accent)]" />
-                    First live case in the Dojo
+                    One of {caseCount} live cases
                   </span>
                   <span className="flex items-center gap-1.5 font-semibold text-[var(--color-accent)]">
                     Take a rep
@@ -301,6 +328,15 @@ export default function DojoPage() {
                   </span>
                 </div>
               </div>
+            </Link>
+          </div>
+
+          <div className="mt-10 flex justify-center">
+            <Link href="/dojo/cases">
+              <Button variant="primary" size="lg">
+                Browse all {caseCount} cases
+                <ArrowRight className="h-4 w-4" />
+              </Button>
             </Link>
           </div>
         </section>
