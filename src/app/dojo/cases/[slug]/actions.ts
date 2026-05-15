@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { isHoneypotTripped } from "@/lib/honeypot";
+import { checkRateLimit, rateLimitErrorMessage } from "@/lib/rate-limit";
 
 const RECOMMENDATIONS = [
   "approve",
@@ -88,6 +90,11 @@ export async function submitDojoAnalysisAction(
   _prev: SubmitResult | null,
   formData: FormData,
 ): Promise<SubmitResult> {
+  // Honeypot — silent success.
+  if (isHoneypotTripped(formData)) {
+    return { ok: true, submissionId: "honeypot" };
+  }
+
   // Pull all `red_flags` checkbox values
   const redFlags = formData.getAll("red_flags").map((v) => String(v));
 
@@ -107,6 +114,20 @@ export async function submitDojoAnalysisAction(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "Sign in to submit." };
+
+  // Rate-limit Dojo submissions: 10 per user per hour. The DB-level unique
+  // constraint already enforces 1-per-case-per-user, but this caps the
+  // total submission rate (defense against brute-force scoring attempts).
+  const rl = await checkRateLimit({
+    action: "dojo_submit",
+    scope: "user",
+    identifier: user.id,
+    maxCount: 10,
+    windowSeconds: 3600,
+  });
+  if (!rl.allowed) {
+    return { ok: false, error: rateLimitErrorMessage(rl) };
+  }
 
   // Fetch the answer key with the service client so RLS doesn't tease it
   // (we're computing the score server-side; the user never sees it raw).

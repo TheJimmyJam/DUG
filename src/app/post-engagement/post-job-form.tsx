@@ -4,6 +4,8 @@ import { useActionState, useState, useTransition, useRef } from "react";
 import { Sparkles, RotateCcw, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/input";
+import { Honeypot } from "@/components/honeypot";
+import { Turnstile } from "@/components/turnstile";
 import { postJobAction, generateJobAction, type Result, type GeneratedJob } from "./actions";
 import type { Specialty, SpecialtyGroup } from "@/lib/specialties";
 import type { PricingConfig } from "@/lib/pricing-config";
@@ -297,6 +299,7 @@ export function PostJobForm({
       {/* ── Full form ── */}
       <div ref={formRef}>
         <form action={action} className="space-y-5">
+          <Honeypot />
           <input type="hidden" name="requester_type" value={requesterType} />
 
           <div>
@@ -537,6 +540,8 @@ export function PostJobForm({
               {state.error}
             </div>
           )}
+
+          <Turnstile action="post-engagement" />
 
           <Button type="submit" variant="primary" size="lg" disabled={pending} className="w-full sm:w-auto">
             {pending ? "Posting…" : generated ? "Post this request →" : "Post request"}

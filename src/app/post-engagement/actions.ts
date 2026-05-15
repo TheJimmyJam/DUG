@@ -6,6 +6,9 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { SPECIALTIES } from "@/lib/specialties";
 import { PLATFORM_FEES } from "@/lib/pricing-config";
+import { verifyTurnstile, turnstileErrorMessage } from "@/lib/turnstile";
+import { isHoneypotTripped } from "@/lib/honeypot";
+import { checkRateLimit, getClientIp, rateLimitErrorMessage } from "@/lib/rate-limit";
 
 // ---------------------------------------------------------------------------
 // Engagement tier + fee logic
@@ -88,6 +91,35 @@ export async function postJobAction(
   _prev: Result | null,
   formData: FormData,
 ): Promise<Result> {
+  // Defense stack — honeypot → rate-limit → Turnstile → validation.
+  // Honeypot silently succeeds so bots don't learn the trap.
+  if (isHoneypotTripped(formData)) {
+    return { ok: true };
+  }
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { ok: false, error: "Not authenticated" };
+
+  // Rate-limit per user — 5 engagements per 24h. Generous; legitimate users
+  // rarely post more than 1-2 per day. Raise per-user if power users emerge.
+  const rl = await checkRateLimit({
+    action: "post_engagement",
+    scope: "user",
+    identifier: user.id,
+    maxCount: 5,
+    windowSeconds: 86400,
+  });
+  if (!rl.allowed) {
+    return { ok: false, error: rateLimitErrorMessage(rl) };
+  }
+
+  const ip = await getClientIp();
+  const turnstile = await verifyTurnstile(formData, ip);
+  if (!turnstile.ok) {
+    return { ok: false, error: turnstileErrorMessage(turnstile.reason) };
+  }
+
   const parsed = schema.safeParse({
     title: formData.get("title"),
     summary: formData.get("summary"),
@@ -111,9 +143,7 @@ export async function postJobAction(
   const tier = deriveEngagementTier(parsed.data.requester_type);
   const feeBps = TIER_FEE_BPS[tier];
 
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { ok: false, error: "Not authenticated" };
+  // (supabase + user already resolved above for rate-limit check)
 
   // Parse milestones if provided
   let milestonesJson: { label: string; amount_cents: number; status: string }[] | null = null;

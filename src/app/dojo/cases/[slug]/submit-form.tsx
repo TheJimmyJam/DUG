@@ -4,6 +4,7 @@ import { useActionState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Textarea } from "@/components/ui/input";
+import { Honeypot } from "@/components/honeypot";
 import { useToast } from "@/components/toast";
 import { submitDojoAnalysisAction, type SubmitResult } from "./actions";
 import { ArrowRight } from "lucide-react";
@@ -43,6 +44,7 @@ export function SubmitForm({
       action={formAction}
       className="rounded-xl border border-[var(--color-border)] bg-[var(--color-card)] p-5"
     >
+      <Honeypot />
       <div className="text-sm font-semibold">Your analysis</div>
       <p className="mt-1 text-xs text-[var(--color-muted)]">
         One submission per rep. Make it count — but don&apos;t overthink it.

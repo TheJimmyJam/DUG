@@ -3,6 +3,8 @@
 import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
+import { Honeypot } from "@/components/honeypot";
+import { Turnstile } from "@/components/turnstile";
 import { signUpAction, type ActionResult } from "@/app/auth/actions";
 
 const initial: ActionResult | null = null;
@@ -12,6 +14,7 @@ export function SignupForm() {
 
   return (
     <form action={action} className="space-y-4">
+      <Honeypot />
       <div>
         <Label htmlFor="email">Email</Label>
         <Input id="email" name="email" type="email" required autoComplete="email" />
@@ -53,6 +56,8 @@ export function SignupForm() {
           {state.error}
         </div>
       )}
+
+      <Turnstile action="signup" />
 
       <Button
         type="submit"
