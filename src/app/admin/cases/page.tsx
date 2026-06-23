@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient, getCurrentUser } from "@/lib/supabase/server";
 import { assignCaseAction, markBatchReadyAction } from "./actions";
@@ -64,7 +65,10 @@ export default async function AdminCasesPage({
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Cases</h1>
+          <Link href="/admin" className="text-sm text-[var(--color-muted)] hover:text-[var(--color-fg)] transition-colors">
+            ← Back to Admin
+          </Link>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Cases</h1>
           <p className="mt-1 text-[var(--color-muted)]">
             All carrier cases. Assign reviewers and mark batches ready.
           </p>

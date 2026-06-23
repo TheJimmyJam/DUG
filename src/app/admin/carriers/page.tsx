@@ -26,7 +26,10 @@ export default async function AdminCarriersPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Carriers</h1>
+        <Link href="/admin" className="text-sm text-[var(--color-muted)] hover:text-[var(--color-fg)] transition-colors">
+          ← Back to Admin
+        </Link>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight">Carriers</h1>
         <p className="mt-1 text-[var(--color-muted)]">
           Manage carrier accounts and import cases.
         </p>

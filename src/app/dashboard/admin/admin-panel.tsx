@@ -119,26 +119,29 @@ export function AdminPanel({ initialUsers, initialJobs, initialPricingConfig }: 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Admin</h1>
-        <p className="mt-1 text-[var(--color-muted)]">
-          Manage users, jobs, and demo data.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">Admin</h1>
+          <p className="mt-1 text-[var(--color-muted)]">Manage users, jobs, and platform data.</p>
+        </div>
       </div>
 
-      {/* Quick links */}
-      <div className="flex flex-wrap gap-2">
+      {/* Quick links — carrier management */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {[
-          { href: "/admin/carriers", label: "Carriers" },
-          { href: "/admin/cases", label: "Cases" },
-          { href: "/admin/underwriters/invite", label: "Invite reviewer" },
-        ].map(({ href, label }) => (
+          { href: "/admin/carriers", label: "Carriers", desc: "Add carriers, manage users, import cases" },
+          { href: "/admin/cases", label: "Cases", desc: "Assign reviewers and track case status" },
+          { href: "/admin/underwriters/invite", label: "Invite reviewer", desc: "Grant carrier reviewer access" },
+        ].map(({ href, label, desc }) => (
           <Link
             key={href}
             href={href}
-            className="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-sm font-medium hover:bg-[var(--color-card)] transition-colors"
+            className="group flex flex-col gap-1 rounded-lg border bg-[var(--color-card)] px-4 py-3 hover:border-[var(--color-primary)] transition-colors"
           >
-            {label} →
+            <span className="text-sm font-semibold group-hover:text-[var(--color-primary)] transition-colors">
+              {label} →
+            </span>
+            <span className="text-xs text-[var(--color-muted)]">{desc}</span>
           </Link>
         ))}
       </div>
@@ -146,16 +149,13 @@ export function AdminPanel({ initialUsers, initialJobs, initialPricingConfig }: 
       {/* Stats bar */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
-          { label: "Total users", value: totalUsers },
-          { label: "Total jobs", value: totalJobs },
-          { label: "Open jobs", value: openJobs },
-          { label: "Demo jobs", value: demoJobs },
+          { label: "Total users", value: totalUsers, color: "text-[var(--color-primary)]" },
+          { label: "Total jobs", value: totalJobs, color: "" },
+          { label: "Open jobs", value: openJobs, color: "text-green-600 dark:text-green-400" },
+          { label: "Demo jobs", value: demoJobs, color: "text-[var(--color-muted)]" },
         ].map((s) => (
-          <div
-            key={s.label}
-            className="rounded-lg border bg-[var(--color-card)] p-4"
-          >
-            <div className="text-2xl font-semibold">{s.value}</div>
+          <div key={s.label} className="rounded-lg border bg-[var(--color-card)] p-4">
+            <div className={`text-2xl font-semibold ${s.color}`}>{s.value}</div>
             <div className="mt-0.5 text-xs text-[var(--color-muted)]">{s.label}</div>
           </div>
         ))}

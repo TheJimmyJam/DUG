@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient, getCurrentUser } from "@/lib/supabase/server";
 import { inviteCarrierReviewerAction } from "@/app/admin/carriers/actions";
@@ -25,7 +26,10 @@ export default async function InviteReviewersPage() {
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Invite reviewers</h1>
+        <Link href="/admin" className="text-sm text-[var(--color-muted)] hover:text-[var(--color-fg)] transition-colors">
+          ← Back to Admin
+        </Link>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight">Invite reviewers</h1>
         <p className="mt-1 text-[var(--color-muted)]">
           Invite a user as a carrier reviewer. They will receive an email to set up their account.
         </p>
