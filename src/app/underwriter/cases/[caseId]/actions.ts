@@ -34,7 +34,7 @@ export async function submitCaseAnalysisAction(formData: FormData) {
     underwriter_id: user.id,
     key_exposures: (formData.get("key_exposures") as string) || null,
     missing_information: (formData.get("missing_information") as string) || null,
-    recommendation: (formData.get("recommendation") as string) || null,
+    recommendation: ((formData.get("recommendation") as string) || null) as "write" | "decline" | "write_with_modifications" | null,
     suggested_price_structure: (formData.get("suggested_price_structure") as string) || null,
     reasoning: (formData.get("reasoning") as string) || null,
   });

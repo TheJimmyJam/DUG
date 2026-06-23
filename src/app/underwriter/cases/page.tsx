@@ -27,7 +27,7 @@ export default async function UnderwriterCasesPage() {
     .order("created_at", { ascending: false });
 
   // Fetch carrier names
-  const carrierIds = [...new Set((cases ?? []).map((c) => c.carrier_id).filter(Boolean))];
+  const carrierIds = [...new Set((cases ?? []).map((c) => c.carrier_id).filter((id): id is string => id !== null))];
   let carrierMap: Record<string, string> = {};
   if (carrierIds.length > 0) {
     const { data: carriers } = await supabase

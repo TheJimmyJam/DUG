@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { ArrowRight, CheckCircle, XCircle, Trophy } from "lucide-react";
+import { ArrowRight, CheckCircle, XCircle, Trophy, Lock, Eye, EyeOff } from "lucide-react";
 
 export const metadata = {
   title: "Your scoring — DUG Dojo",
@@ -51,15 +51,25 @@ export default async function DojoResultPage({ params }: PageProps) {
   const { data: submission } = await supabase
     .from("dojo_submissions")
     .select(
-      "id, rationale, premium_cents, recommendation, red_flags, confidence, score, premium_score, factors_score, matched_factors, missed_factors, created_at",
+      "id, rationale, premium_cents, recommendation, red_flags, confidence, score, premium_score, factors_score, matched_factors, missed_factors, created_at, status, visibility, bound_at",
     )
     .eq("case_id", dojoCase.id)
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (!submission) {
+  // Only Bound submissions have a result. Draft = back to the case page.
+  if (!submission || submission.status !== "bound") {
     redirect(`/dojo/cases/${slug}`);
   }
+
+  // Bound rows always have these populated (CHECK constraint at DB level),
+  // but the DB types reflect column-level nullability. Coerce to safe values
+  // for rendering.
+  const score = submission.score ?? 0;
+  const premiumScore = submission.premium_score ?? 0;
+  const factorsScore = submission.factors_score ?? 0;
+  const matchedFactors = submission.matched_factors ?? [];
+  const missedFactors = submission.missed_factors ?? [];
 
   // Now safe to fetch the answer key — they've submitted.
   const service = createServiceClient();
@@ -71,15 +81,20 @@ export default async function DojoResultPage({ params }: PageProps) {
     .eq("id", dojoCase.id)
     .single();
 
-  // Community percentile
+  // Community percentile — only Bound submissions count (drafts aren't scored).
   const { data: peerScores } = await service
     .from("dojo_submissions")
     .select("score")
-    .eq("case_id", dojoCase.id);
+    .eq("case_id", dojoCase.id)
+    .eq("status", "bound")
+    .not("score", "is", null);
 
-  const allScores = (peerScores ?? []).map((r) => r.score);
+  const userScore = score;
+  const allScores = (peerScores ?? [])
+    .map((r) => r.score)
+    .filter((s): s is number => s !== null);
   const total = allScores.length;
-  const beat = allScores.filter((s) => s < submission.score).length;
+  const beat = allScores.filter((s) => s < userScore).length;
   const percentile = total > 0 ? Math.round((beat / total) * 100) : 0;
 
   const userPremiumIn =
@@ -105,6 +120,24 @@ export default async function DojoResultPage({ params }: PageProps) {
                 <Link href="/dojo" className="hover:text-[var(--color-fg)]">The Dojo</Link>
                 <span>·</span>
                 <span>{dojoCase.code}</span>
+                <span>·</span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-[var(--color-fg)]/5 px-2 py-0.5 font-medium text-[var(--color-fg)]">
+                  <Lock className="h-3 w-3" />
+                  Bound
+                </span>
+                <span className="inline-flex items-center gap-1 text-[var(--color-muted)]">
+                  {submission.visibility === "network" ? (
+                    <>
+                      <Eye className="h-3 w-3" />
+                      Network
+                    </>
+                  ) : (
+                    <>
+                      <EyeOff className="h-3 w-3" />
+                      Private
+                    </>
+                  )}
+                </span>
               </div>
 
               <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
@@ -120,7 +153,7 @@ export default async function DojoResultPage({ params }: PageProps) {
                   <Trophy className="h-6 w-6 text-[var(--color-accent)]" />
                   <div>
                     <div className="text-3xl font-semibold tracking-tight">
-                      {submission.score}
+                      {score}
                       <span className="text-base text-[var(--color-muted)]"> / 100</span>
                     </div>
                     {total > 1 && (
@@ -145,7 +178,7 @@ export default async function DojoResultPage({ params }: PageProps) {
                   <div className="flex items-center justify-between">
                     <h2 className="text-lg font-semibold tracking-tight">Premium read</h2>
                     <Badge variant={userPremiumIn ? "success" : "warning"}>
-                      {submission.premium_score} / 50
+                      {premiumScore} / 50
                     </Badge>
                   </div>
                   <p className="mt-2 text-sm text-[var(--color-muted)]">
@@ -183,26 +216,26 @@ export default async function DojoResultPage({ params }: PageProps) {
                 <CardContent className="pt-6">
                   <div className="flex items-center justify-between">
                     <h2 className="text-lg font-semibold tracking-tight">Factor coverage</h2>
-                    <Badge variant={submission.factors_score >= 35 ? "success" : "warning"}>
-                      {submission.factors_score} / 50
+                    <Badge variant={factorsScore >= 35 ? "success" : "warning"}>
+                      {factorsScore} / 50
                     </Badge>
                   </div>
                   <p className="mt-2 text-sm text-[var(--color-muted)]">
-                    The model rationale tracks {submission.matched_factors.length + submission.missed_factors.length} key
+                    The model rationale tracks {matchedFactors.length + missedFactors.length} key
                     factors. Yours covered{" "}
                     <span className="font-semibold text-[var(--color-fg)]">
-                      {submission.matched_factors.length}
+                      {matchedFactors.length}
                     </span>
                     .
                   </p>
 
-                  {submission.matched_factors.length > 0 && (
+                  {matchedFactors.length > 0 && (
                     <div className="mt-5">
                       <div className="text-xs uppercase tracking-wider text-[var(--color-muted)]">
                         You covered
                       </div>
                       <ul className="mt-2 space-y-1.5 text-sm">
-                        {submission.matched_factors.map((f) => (
+                        {matchedFactors.map((f) => (
                           <li key={f} className="flex items-start gap-2">
                             <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-success)]" />
                             <span>{f}</span>
@@ -212,13 +245,13 @@ export default async function DojoResultPage({ params }: PageProps) {
                     </div>
                   )}
 
-                  {submission.missed_factors.length > 0 && (
+                  {missedFactors.length > 0 && (
                     <div className="mt-5">
                       <div className="text-xs uppercase tracking-wider text-[var(--color-muted)]">
                         You missed
                       </div>
                       <ul className="mt-2 space-y-1.5 text-sm">
-                        {submission.missed_factors.map((f) => (
+                        {missedFactors.map((f) => (
                           <li key={f} className="flex items-start gap-2">
                             <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-danger)]" />
                             <span>{f}</span>
