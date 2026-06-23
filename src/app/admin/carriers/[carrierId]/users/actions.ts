@@ -45,8 +45,7 @@ export async function createCarrierUserAction(formData: FormData) {
   // Insert into carrier_users (ignore conflict if already exists for this carrier)
   const { error: insertErr } = await service
     .from("carrier_users")
-    .insert({ carrier_id: carrierId, email, auth_id: authId })
-    .throwOnError();
+    .insert({ carrier_id: carrierId, email, auth_id: authId });
 
   if (insertErr) {
     // Unique constraint on email — user already added to this carrier
