@@ -95,7 +95,13 @@ export default async function AdminCarriersPage() {
                 <td className="px-4 py-3 text-[var(--color-muted)] hidden lg:table-cell">
                   {new Date(c.created_at ?? "").toLocaleDateString()}
                 </td>
-                <td className="px-4 py-3 text-right">
+                <td className="px-4 py-3 text-right space-x-2">
+                  <Link
+                    href={`/admin/carriers/${c.id}/users`}
+                    className="rounded px-3 py-1 text-xs bg-[var(--color-border)] hover:opacity-80 transition-opacity"
+                  >
+                    Users
+                  </Link>
                   <Link
                     href={`/admin/carriers/${c.id}/import`}
                     className="rounded px-3 py-1 text-xs bg-[var(--color-border)] hover:opacity-80 transition-opacity"
