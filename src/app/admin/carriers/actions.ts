@@ -45,10 +45,11 @@ export async function inviteCarrierReviewerAction(formData: FormData) {
   if (inviteErr) throw new Error(inviteErr.message);
 
   if (invited?.user) {
-    // Upsert profile with is_carrier_reviewer = true
+    // Set is_carrier_reviewer = true on the profile created by the invite trigger
     await service
       .from("profiles")
-      .upsert({ id: invited.user.id, is_carrier_reviewer: true }, { onConflict: "id" });
+      .update({ is_carrier_reviewer: true })
+      .eq("id", invited.user.id);
   }
 
   revalidatePath("/admin/underwriters/invite");
