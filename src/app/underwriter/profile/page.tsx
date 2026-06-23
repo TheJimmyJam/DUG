@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient, getCurrentUser } from "@/lib/supabase/server";
 import { updateReviewerProfileAction } from "./actions";
@@ -20,12 +21,12 @@ export default async function ReviewerProfilePage() {
   return (
     <div className="space-y-6 max-w-lg">
       <div>
-        <a
+        <Link
           href="/underwriter/cases"
           className="text-sm text-[var(--color-muted)] hover:text-[var(--color-fg)] transition-colors"
         >
           ← My cases
-        </a>
+        </Link>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">My profile</h1>
         <p className="mt-1 text-[var(--color-muted)]">
           Adding your credentials helps carriers trust the analyses you submit.
@@ -48,7 +49,7 @@ export default async function ReviewerProfilePage() {
               className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm"
             />
             <p className="mt-1 text-xs text-[var(--color-muted)]">
-              Adds a "LinkedIn Verified" badge to your analyses.
+              Adds a &quot;LinkedIn Verified&quot; badge to your analyses.
             </p>
           </div>
 
@@ -65,7 +66,7 @@ export default async function ReviewerProfilePage() {
                 I hold a CPCU designation
               </label>
               <p className="text-xs text-[var(--color-muted)] mt-0.5">
-                Adds a "CPCU" badge to your analyses. Self-reported — we may verify at a later stage.
+                Adds a &quot;CPCU&quot; badge to your analyses. Self-reported — we may verify at a later stage.
               </p>
             </div>
           </div>
@@ -77,12 +78,12 @@ export default async function ReviewerProfilePage() {
             >
               Save
             </button>
-            <a
+            <Link
               href="/underwriter/cases"
               className="text-sm text-[var(--color-muted)] hover:text-[var(--color-fg)] transition-colors"
             >
               Cancel
-            </a>
+            </Link>
           </div>
         </form>
       </div>

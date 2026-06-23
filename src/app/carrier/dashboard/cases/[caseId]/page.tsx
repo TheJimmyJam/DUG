@@ -106,12 +106,12 @@ export default async function CarrierCaseDetailPage({
                   {a.recommendation?.replace(/_/g, " ") ?? "—"}
                 </span>
                 <div className="flex items-center gap-1.5 shrink-0">
-                  {(a.profiles as any)?.is_cpcu && (
+                  {(a.profiles as { is_cpcu: boolean | null; linkedin_url: string | null } | null)?.is_cpcu && (
                     <span className="rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 px-2 py-0.5 text-xs font-medium">
                       CPCU
                     </span>
                   )}
-                  {(a.profiles as any)?.linkedin_url && (
+                  {(a.profiles as { is_cpcu: boolean | null; linkedin_url: string | null } | null)?.linkedin_url && (
                     <span className="rounded-full bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300 px-2 py-0.5 text-xs font-medium">
                       LinkedIn ✓
                     </span>

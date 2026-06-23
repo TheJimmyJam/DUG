@@ -51,7 +51,7 @@ export default async function CarrierUsersPage({
       <div className="rounded-lg border bg-[var(--color-card)] p-6 space-y-4">
         <h2 className="text-lg font-semibold">Add carrier user</h2>
         <p className="text-sm text-[var(--color-muted)]">
-          Enter the contact's email. They'll receive a Supabase invite link to set their password
+          Enter the contact&apos;s email. They&apos;ll receive a Supabase invite link to set their password
           and will land on the carrier dashboard when they log in.
         </p>
         <form action={createCarrierUserAction} className="flex flex-wrap gap-3 items-end">
