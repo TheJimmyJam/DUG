@@ -119,11 +119,16 @@ export function AdminPanel({ initialUsers, initialJobs, initialPricingConfig }: 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-end justify-between gap-4">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">Admin</h1>
           <p className="mt-1 text-[var(--color-muted)]">Manage users, jobs, and platform data.</p>
         </div>
+        <img
+          src="/dug-mole.png"
+          alt="DUG mascot"
+          className="h-24 w-auto select-none pointer-events-none"
+        />
       </div>
 
       {/* Quick links — carrier management */}
