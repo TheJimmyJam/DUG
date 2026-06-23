@@ -13,6 +13,7 @@ export const config = {
      * - /post-job
      * - /jobs/[id]/submit and /jobs/[id]/review (auth-gated actions)
      * - /auth (callback / sign-out routes)
+     * - /admin/carriers, /underwriter/cases, /carrier (carrier ingestion MVP)
      *
      * Public pages (/jobs, /underwriters, /, /about, /u/[handle], etc.)
      * are intentionally excluded so they never pay the Supabase getUser()
@@ -23,5 +24,9 @@ export const config = {
     "/engagements/:id/submit/:path*",
     "/engagements/:id/review/:path*",
     "/auth/:path*",
+    "/reset-password/:path*",
+    "/admin/carriers/:path*",
+    "/underwriter/cases/:path*",
+    "/carrier/:path*",
   ],
 };

@@ -10,13 +10,15 @@
     "typecheck": "tsc --noEmit",
     "db:migrate": "node scripts/db-migrate-api.mjs",
     "db:types": "node scripts/db-types.mjs",
-    "db:seed": "node scripts/seed.mjs"
+    "db:seed": "node scripts/seed.mjs",
+    "auth:emails": "node scripts/auth-emails-apply.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.105.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "gsap": "^3.12.5",
     "lucide-react": "^0.460.0",
     "next": "^15.0.3",
     "react": "^19.0.0",
@@ -24,7 +26,7 @@
     "resend": "^4.0.1",
     "tailwind-merge": "^2.5.4",
     "tailwindcss-animate": "^1.0.7",
-    "gsap": "^3.12.5",
+    "xlsx": "^0.18.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {
