@@ -36,11 +36,11 @@ export default async function CarrierCaseDetailPage({
     redirect("/carrier/dashboard");
   }
 
-  // Fetch analyses
+  // Fetch analyses, join reviewer credential fields (no name/identity)
   const { data: analyses } = await supabase
     .from("carrier_case_analyses")
     .select(
-      "id, recommendation, key_exposures, missing_information, suggested_price_structure, reasoning, created_at"
+      "id, recommendation, key_exposures, missing_information, suggested_price_structure, reasoning, created_at, profiles!underwriter_id(linkedin_url, is_cpcu)"
     )
     .eq("case_id", caseId)
     .order("created_at", { ascending: false });
@@ -101,13 +101,25 @@ export default async function CarrierCaseDetailPage({
               key={a.id}
               className="rounded-lg border bg-[var(--color-card)] p-5 space-y-3 text-sm"
             >
-              <div className="flex items-center justify-between">
+              <div className="flex items-start justify-between gap-3">
                 <span className="font-semibold capitalize text-base">
                   {a.recommendation?.replace(/_/g, " ") ?? "—"}
                 </span>
-                <span className="text-xs text-[var(--color-muted)]">
-                  {new Date(a.created_at ?? "").toLocaleDateString()}
-                </span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {(a.profiles as any)?.is_cpcu && (
+                    <span className="rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 px-2 py-0.5 text-xs font-medium">
+                      CPCU
+                    </span>
+                  )}
+                  {(a.profiles as any)?.linkedin_url && (
+                    <span className="rounded-full bg-sky-100 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300 px-2 py-0.5 text-xs font-medium">
+                      LinkedIn ✓
+                    </span>
+                  )}
+                  <span className="text-xs text-[var(--color-muted)]">
+                    {new Date(a.created_at ?? "").toLocaleDateString()}
+                  </span>
+                </div>
               </div>
               {a.key_exposures && (
                 <div>
