@@ -11,11 +11,13 @@ export default async function UnderwriterCasesPage() {
   const supabase = await createClient();
   const { data: profile } = await supabase
     .from("profiles")
-    .select("is_carrier_reviewer, display_name")
+    .select("is_carrier_reviewer, display_name, linkedin_url, is_cpcu")
     .eq("id", user.id)
     .single();
 
   if (!profile?.is_carrier_reviewer) redirect("/dashboard");
+
+  const credentialsComplete = profile.linkedin_url || profile.is_cpcu;
 
   // Query the underwriter-safe view
   const { data: cases } = await supabase
@@ -43,12 +45,35 @@ export default async function UnderwriterCasesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">My cases</h1>
-        <p className="mt-1 text-[var(--color-muted)]">
-          Cases assigned to you for review.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">My cases</h1>
+          <p className="mt-1 text-[var(--color-muted)]">
+            Cases assigned to you for review.
+          </p>
+        </div>
+        <a
+          href="/underwriter/profile"
+          className="shrink-0 rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--color-card)] transition-colors"
+        >
+          My profile
+        </a>
       </div>
+
+      {!credentialsComplete && (
+        <div className="rounded-lg border border-yellow-300 bg-yellow-50 dark:border-yellow-700 dark:bg-yellow-900/20 px-4 py-3 text-sm flex items-start gap-3">
+          <span className="text-yellow-600 dark:text-yellow-400 mt-0.5">⚠</span>
+          <div>
+            <span className="font-medium text-yellow-800 dark:text-yellow-300">Add your credentials</span>
+            <span className="text-yellow-700 dark:text-yellow-400">
+              {" "}— Carriers see a credibility badge on your analyses when you add a LinkedIn URL or CPCU designation.{" "}
+            </span>
+            <a href="/underwriter/profile" className="font-medium underline text-yellow-800 dark:text-yellow-300 hover:opacity-80">
+              Set up now →
+            </a>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-lg border overflow-hidden">
         <table className="w-full text-sm">
