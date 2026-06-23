@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -123,6 +124,23 @@ export function AdminPanel({ initialUsers, initialJobs, initialPricingConfig }: 
         <p className="mt-1 text-[var(--color-muted)]">
           Manage users, jobs, and demo data.
         </p>
+      </div>
+
+      {/* Quick links */}
+      <div className="flex flex-wrap gap-2">
+        {[
+          { href: "/admin/carriers", label: "Carriers" },
+          { href: "/admin/cases", label: "Cases" },
+          { href: "/admin/underwriters/invite", label: "Invite reviewer" },
+        ].map(({ href, label }) => (
+          <Link
+            key={href}
+            href={href}
+            className="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-sm font-medium hover:bg-[var(--color-card)] transition-colors"
+          >
+            {label} →
+          </Link>
+        ))}
       </div>
 
       {/* Stats bar */}
