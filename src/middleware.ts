@@ -25,7 +25,7 @@ export const config = {
     "/engagements/:id/review/:path*",
     "/auth/:path*",
     "/reset-password/:path*",
-    "/admin/carriers/:path*",
+    "/admin/:path*",
     "/underwriter/cases/:path*",
     "/carrier/:path*",
   ],
