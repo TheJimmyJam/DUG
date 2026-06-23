@@ -1,6 +1,9 @@
 import { redirect } from "next/navigation";
 import { createClient, getCurrentUser } from "@/lib/supabase/server";
 import { assignCaseAction, markBatchReadyAction } from "./actions";
+import type { Database } from "@/lib/database.types";
+
+type CarrierCaseStatus = Database["public"]["Enums"]["carrier_case_status"];
 
 export const metadata = { title: "Cases — Admin" };
 
@@ -30,7 +33,7 @@ export default async function AdminCasesPage({
     )
     .order("created_at", { ascending: false });
 
-  if (filterStatus) query = query.eq("status", filterStatus);
+  if (filterStatus) query = query.eq("status", filterStatus as CarrierCaseStatus);
   if (filterCarrier) query = query.eq("carrier_id", filterCarrier);
 
   const { data: cases } = await query;
