@@ -15,6 +15,9 @@ const nextConfig: NextConfig = {
       { source: "/jobs/:id/review", destination: "/engagements/:id/review", permanent: true },
       { source: "/post-job", destination: "/post-engagement", permanent: true },
       { source: "/dashboard/jobs", destination: "/dashboard/engagements", permanent: true },
+      // /dashboard/admin/* → /admin/*
+      { source: "/dashboard/admin", destination: "/admin", permanent: true },
+      { source: "/dashboard/admin/:path*", destination: "/admin/:path*", permanent: true },
     ];
   },
 };
