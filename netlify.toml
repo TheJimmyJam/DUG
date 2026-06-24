@@ -13,6 +13,13 @@
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
+# Serve the standalone sizzle reel HTML directly, bypassing Next.js routing.
+[[redirects]]
+  from = "/sizzle"
+  to = "/sizzle.html"
+  status = 200
+  force = true
+
 # Required env vars (set in Netlify dashboard, NOT here):
 #   NEXT_PUBLIC_SUPABASE_URL
 #   NEXT_PUBLIC_SUPABASE_ANON_KEY

@@ -72,7 +72,10 @@ export default function HomePage() {
                 </Link>
               </div>
               <p className="mt-4 text-xs !text-[#5c4033]">
-                Free to join. No carrier affiliation required. Lurk, learn, or earn — your call.
+                Free to join. No carrier affiliation required. Lurk, learn, or earn — your call.{" "}
+                <a href="/sizzle" className="underline underline-offset-2 hover:opacity-70 font-medium">
+                  Watch the sizzle reel →
+                </a>
               </p>
             </div>
           </div>
